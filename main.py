@@ -34,9 +34,10 @@ DF_PREVIEW_ROWS = 100
 # -------------
 
 def setup_streamlit():
-    st.set_page_config(page_title="✨ Simple Google Search Console Data | YourApp", layout="wide")
-    st.title("✨ Simple Google Search Console Data | July 2024")
-    st.markdown(f"### Lightweight GSC Data Extractor. (Max {MAX_ROWS:,} Rows)")
+    st.set_page_config(page_title="Google Search Console API Connector", layout="wide")
+    st.title("Google Search Console API Connector")
+    st.subheader("Export Up To 250,000 Keywords Seamlessly")
+    st.markdown("By: Brandon Lazovic")
 
     st.markdown(
         """
@@ -67,6 +68,12 @@ def init_session_state():
         st.session_state.custom_start_date = datetime.date.today() - datetime.timedelta(days=7)
     if 'custom_end_date' not in st.session_state:
         st.session_state.custom_end_date = datetime.date.today()
+    if 'filter_keyword' not in st.session_state:
+        st.session_state.filter_keyword = ''
+    if 'filter_url' not in st.session_state:
+        st.session_state.filter_url = ''
+    if 'compare' not in st.session_state:
+        st.session_state.compare = False
 
 # -------------
 # Google Authentication Functions
@@ -122,11 +129,17 @@ def list_gsc_properties(credentials):
     site_list = service.sites().list().execute()
     return [site['siteUrl'] for site in site_list.get('siteEntry', [])] or ["No properties found"]
 
-def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type=None):
+def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keyword=None, filter_url=None):
     query = webproperty.query.range(start_date, end_date).search_type(search_type).dimension(*dimensions)
 
     if 'device' in dimensions and device_type and device_type != 'All Devices':
         query = query.filter('device', 'equals', device_type.lower())
+
+    if filter_keyword:
+        query = query.filter('query', 'contains', filter_keyword)
+
+    if filter_url:
+        query = query.filter('page', 'contains', filter_url)
 
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
@@ -136,9 +149,9 @@ def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, d
         show_error(e)
         return pd.DataFrame()
 
-def fetch_data_loading(webproperty, search_type, start_date, end_date, dimensions, device_type=None):
+def fetch_data_loading(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keyword=None, filter_url=None):
     with st.spinner('Fetching data...'):
-        return fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type)
+        return fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type, filter_keyword, filter_url)
 
 # -------------
 # Utility Functions
@@ -178,24 +191,8 @@ def show_dataframe(report):
     with st.expander("Preview the First 100 Rows"):
         st.dataframe(report.head(DF_PREVIEW_ROWS))
 
-    st.write("### DataFrame Structure")
-    buffer = io.StringIO()
-    report.info(buf=buffer)
-    info = buffer.getvalue()
-    st.text(info)  # Display the DataFrame information
-
-    st.write(report.head())  # Show the first few rows of the DataFrame for debugging
-
 def download_csv_link(report):
     try:
-        st.write("### DataFrame Info")
-        buffer = io.StringIO()
-        report.info(buf=buffer)
-        info = buffer.getvalue()
-        st.text(info)  # Display the DataFrame information
-
-        st.write(report.head())  # Show the first few rows of the DataFrame for debugging
-
         # Reset the DataFrame index before converting to CSV
         report.reset_index(drop=True, inplace=True)
 
@@ -259,17 +256,23 @@ def show_dimensions_selector(search_type):
         key='dimensions_selector'
     )
 
-def show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions):
+def show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, filter_keyword, filter_url):
     if st.button("Fetch Data"):
-        report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions)
+        report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions, filter_keyword=filter_keyword, filter_url=filter_url)
 
         if report is not None and not report.empty:
             st.write("### Data fetched successfully!")
-            st.write(report)  # Display the DataFrame for debugging purposes
             show_dataframe(report)
             download_csv_link(report)
         else:
             st.write("No data found for the selected parameters.")
+
+def show_comparison_option():
+    st.session_state.compare = st.checkbox("Compare Time Periods")
+
+def show_filter_options():
+    st.session_state.filter_keyword = st.text_input("Keyword Filter (contains)")
+    st.session_state.filter_url = st.text_input("URL or Subfolder Filter (contains)")
 
 # -------------
 # Main Streamlit App Function
@@ -306,7 +309,13 @@ def main():
                 start_date, end_date = calc_date_range(date_range_selection)
 
             selected_dimensions = show_dimensions_selector(search_type)
-            show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions)
+            show_comparison_option()
+            show_filter_options()
+
+            if st.session_state.compare:
+                st.write("Comparison feature is not yet implemented.")  # Placeholder for future implementation
+            else:
+                show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.filter_keyword, st.session_state.filter_url)
 
 if __name__ == "__main__":
     main()
