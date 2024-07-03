@@ -22,13 +22,27 @@ def get_service(credentials_file):
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
-                credentials_file, SCOPES,
-                redirect_uri='https://search-console-keyword-api.streamlit.app'
+                credentials_file, SCOPES
             )
-            creds = flow.run_local_server(port=0)
-            # Save the credentials for the next run
-            with open(TOKEN_FILE, 'w') as token:
-                token.write(creds.to_json())
+            auth_url, _ = flow.authorization_url(prompt='consent')
+
+            st.write("Please go to this URL and authorize the app:")
+            st.write(auth_url)
+
+            code = st.text_input("Enter the authorization code here:")
+
+            if st.button("Submit Authorization Code"):
+                try:
+                    flow.fetch_token(code=code)
+                    creds = flow.credentials
+                    # Save the credentials for the next run
+                    with open(TOKEN_FILE, 'w') as token:
+                        token.write(creds.to_json())
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
+                    st.stop()
+            else:
+                st.stop()  # Wait for the user to enter the code
 
     service = build('webmasters', 'v3', credentials=creds)
     return service
