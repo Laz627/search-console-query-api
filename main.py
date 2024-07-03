@@ -9,10 +9,10 @@ st.set_page_config(layout="wide", page_title="Google Search Console Connector", 
 # Row limit
 RowCap = 25000
 
-# Google OAuth configuration
-clientSecret = str(st.secrets["installed"]["client_secret"])
-clientId = str(st.secrets["installed"]["client_id"])
-redirectUri = str(st.secrets["installed"]["redirect_uris"][0])
+# Directly embedding the Google OAuth credentials
+clientSecret = "your_client_secret"
+clientId = "your_client_id"
+redirectUri = "your_redirect_uri"
 scopes = ["https://www.googleapis.com/auth/webmasters.readonly"]
 
 # Initialize session state variables
