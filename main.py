@@ -79,8 +79,10 @@ def init_session_state():
         st.session_state.custom_start_date = datetime.date.today() - datetime.timedelta(days=7)
     if 'custom_end_date' not in st.session_state:
         st.session_state.custom_end_date = datetime.date.today()
-    if 'filter_keyword' not in st.session_state:
-        st.session_state.filter_keyword = ''
+    if 'filter_keywords' not in st.session_state:
+        st.session_state.filter_keywords = []
+    if 'filter_keywords_not' not in st.session_state:
+        st.session_state.filter_keywords_not = []
     if 'filter_url' not in st.session_state:
         st.session_state.filter_url = ''
     if 'compare' not in st.session_state:
@@ -144,7 +146,7 @@ def list_gsc_properties(credentials):
     site_list = service.sites().list().execute()
     return [site['siteUrl'] for site in site_list.get('siteEntry', [])] or ["No properties found"]
 
-def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keyword=None, filter_url=None):
+def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keywords=None, filter_keywords_not=None, filter_url=None):
     query = webproperty.query.range(start_date, end_date).search_type(search_type).dimension(*dimensions)
 
     if 'device' in dimensions and device_type and device_type != 'All Devices':
@@ -152,19 +154,29 @@ def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, d
 
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
-        if filter_keyword:
-            df = df[df['query'].str.contains(filter_keyword, case=False, na=False)]
+
+        if filter_keywords:
+            keywords = filter_keywords.split(',')
+            for keyword in keywords:
+                df = df[df['query'].str.contains(keyword.strip(), case=False, na=False)]
+
+        if filter_keywords_not:
+            keywords_not = filter_keywords_not.split(',')
+            for keyword in keywords_not:
+                df = df[~df['query'].str.contains(keyword.strip(), case=False, na=False)]
+
         if filter_url:
             df = df[df['page'].str.contains(filter_url, case=False, na=False)]
+        
         df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
         return df
     except Exception as e:
         show_error(e)
         return pd.DataFrame()
 
-def fetch_data_loading(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keyword=None, filter_url=None):
+def fetch_data_loading(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keywords=None, filter_keywords_not=None, filter_url=None):
     with st.spinner('Fetching data...'):
-        return fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type, filter_keyword, filter_url)
+        return fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type, filter_keywords, filter_keywords_not, filter_url)
 
 def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type=None):
     query = webproperty.query.range(compare_start_date, compare_end_date).search_type(search_type).dimension(*dimensions)
@@ -283,9 +295,9 @@ def show_dimensions_selector(search_type):
         key='dimensions_selector'
     )
 
-def show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, filter_keyword, filter_url):
+def show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, filter_keywords, filter_keywords_not, filter_url):
     if st.button("Fetch Data"):
-        report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions, filter_keyword=filter_keyword, filter_url=filter_url)
+        report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions, filter_keywords=filter_keywords, filter_keywords_not=filter_keywords_not, filter_url=filter_url)
 
         if report is not None and not report.empty:
             st.write("### Data fetched successfully!")
@@ -302,7 +314,8 @@ def show_comparison_option():
         st.session_state.compare_end_date = st.date_input("Comparison End Date", st.session_state.compare_end_date)
 
 def show_filter_options():
-    st.session_state.filter_keyword = st.text_input("Keyword Filter (contains)")
+    st.session_state.filter_keywords = st.text_input("Keyword Filter (contains, separate multiple with commas)")
+    st.session_state.filter_keywords_not = st.text_input("Keyword Filter (does not contain, separate multiple with commas)")
     st.session_state.filter_url = st.text_input("URL or Subfolder Filter (contains)")
 
 def compare_data(report, compare_report):
@@ -356,14 +369,14 @@ def main():
 
                 if compare_report is not None and not compare_report.empty:
                     st.write("### Comparison data fetched successfully!")
-                    report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keyword, st.session_state.filter_url)
+                    report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
                     merged_report = compare_data(report, compare_report)
                     show_dataframe(merged_report)
                     download_csv_link(merged_report)
                 else:
                     st.write("No comparison data found for the selected parameters.")
             else:
-                show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.filter_keyword, st.session_state.filter_url)
+                show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
 
 if __name__ == "__main__":
     main()
