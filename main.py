@@ -2,16 +2,15 @@ import streamlit as st
 import pandas as pd
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+
 try:
-    from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
+    from streamlit_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
 except ImportError as e:
     st.error(f"Failed to import a required package: {e}")
+    st.stop()
 
-###############################################################################
-
-st.set_page_config(
-    layout="wide", page_title="Google Search Console Connector", page_icon="🔌"
-)
+# Set page configuration
+st.set_page_config(layout="wide", page_title="Google Search Console Connector", page_icon="🔌")
 
 # Row limit
 RowCap = 25000
