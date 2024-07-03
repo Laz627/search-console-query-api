@@ -1,22 +1,24 @@
 import streamlit as st
 import pandas as pd
-import json
-import os
-from google.oauth2 import service_account
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
+import os
+import json
 
 # Define constants
 SCOPES = ['https://www.googleapis.com/auth/webmasters.readonly']
+TOKEN_FILE = 'token.json'
 CLIENT_SECRETS_FILE = 'client_secret.json'
 
 # OAuth flow to get credentials
 def get_credentials():
     creds = None
     if 'credentials' in st.session_state:
-        creds = st.session_state['credentials']
+        creds = Credentials.from_authorized_user_info(st.session_state['credentials'], SCOPES)
     else:
-        flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES)
+        flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES)
+        flow.redirect_uri = 'https://your-app-name.streamlit.app'
         auth_url, _ = flow.authorization_url(prompt='consent')
         st.write(f"Please go to this URL and authorize the app: [Authorize]({auth_url})")
 
@@ -25,7 +27,7 @@ def get_credentials():
             try:
                 flow.fetch_token(code=code)
                 creds = flow.credentials
-                st.session_state['credentials'] = creds
+                st.session_state['credentials'] = json.loads(creds.to_json())
             except Exception as e:
                 st.error(f"An error occurred: {e}")
                 st.stop()
@@ -46,11 +48,6 @@ def fetch_data(service, site_url, start_date, end_date):
 # Main function
 def main():
     st.title('Google Search Console Data Analysis')
-
-    # Make sure the client_secret.json file exists
-    if not os.path.exists(CLIENT_SECRETS_FILE):
-        st.error(f"Please make sure the {CLIENT_SECRETS_FILE} file exists in the directory.")
-        return
 
     creds = get_credentials()
 
