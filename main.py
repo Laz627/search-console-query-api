@@ -75,14 +75,14 @@ def init_session_state():
 def load_config():
     client_config = {
         "installed": {
-            "client_id": str(st.secrets["installed"]["client_id"]),
-            "client_secret": str(st.secrets["installed"]["client_secret"]),
+            "client_id": "YOUR_CLIENT_ID",
+            "client_secret": "YOUR_CLIENT_SECRET",
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://accounts.google.com/o/oauth2/token",
             "redirect_uris": (
                 ["http://localhost:8501"]
                 if IS_LOCAL
-                else [str(st.secrets["installed"]["redirect_uris"][0])]
+                else ["https://your-app-name.streamlit.app"]
             ),
         }
     }
@@ -114,7 +114,7 @@ def auth_search_console(client_config, credentials):
         "scopes": credentials.scopes,
         "id_token": getattr(credentials, "id_token", None),
     }
-    return google_searchconsole.authenticate(client_config=client_config, credentials=token)
+    return searchconsole.authenticate(client_config=client_config, credentials=token)
 
 # -------------
 # Data Fetching Functions
