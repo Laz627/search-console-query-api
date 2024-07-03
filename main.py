@@ -186,6 +186,9 @@ def download_csv_link(report):
 
         st.write(report.head())  # Show the first few rows of the DataFrame for debugging
 
+        # Reset the index before converting to CSV
+        report = report.reset_index(drop=True)
+
         def to_csv(df):
             return df.to_csv(index=False, encoding='utf-8-sig')
 
