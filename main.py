@@ -129,7 +129,9 @@ def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, d
         query = query.filter('device', 'equals', device_type.lower())
 
     try:
-        return query.limit(MAX_ROWS).get().to_dataframe()
+        df = query.limit(MAX_ROWS).get().to_dataframe()
+        df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
+        return df
     except Exception as e:
         show_error(e)
         return pd.DataFrame()
@@ -185,9 +187,6 @@ def download_csv_link(report):
         st.text(info)  # Display the DataFrame information
 
         st.write(report.head())  # Show the first few rows of the DataFrame for debugging
-
-        # Reset the index before converting to CSV
-        report = report.reset_index(drop=True)
 
         def to_csv(df):
             return df.to_csv(index=False, encoding='utf-8-sig')
