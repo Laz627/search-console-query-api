@@ -5,6 +5,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
+from googleapiclient.errors import HttpError
 
 # Define constants
 TOKEN_FILE = 'token.json'
@@ -20,7 +21,10 @@ def get_service(credentials_file):
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(
+                credentials_file, SCOPES,
+                redirect_uri='https://YOUR_PROJECT_NAME.streamlit.app'
+            )
             auth_url, _ = flow.authorization_url(prompt='consent')
 
             st.write("Please go to this URL and authorize the app:")
@@ -62,7 +66,11 @@ def fetch_search_analytics(service, site_url, subfolder, start_date, end_date, r
             ]
         }
         
-        response = service.searchanalytics().query(siteUrl=site_url, body=request).execute()
+        try:
+            response = service.searchanalytics().query(siteUrl=site_url, body=request).execute()
+        except HttpError as err:
+            st.error(f"An error occurred: {err}")
+            return pd.DataFrame()  # Return an empty DataFrame in case of error
         
         rows = response.get('rows', [])
         if not rows:
@@ -90,6 +98,9 @@ def process_data(credentials_file, site_url, subfolder, date_ranges):
     for idx, date_range in enumerate(date_ranges, 1):
         st.write(f"Processing data for date range: {date_range['label']} ({idx}/{total_ranges})")
         df = fetch_search_analytics(service, site_url, subfolder, date_range['startDate'], date_range['endDate'])
+        if df.empty:
+            st.error("Failed to fetch data.")
+            return pd.DataFrame()  # Return an empty DataFrame if fetching fails
         df['date_range'] = date_range['label']
         data_frames.append(df)
         st.write(f"Completed processing for date range: {date_range['label']}")
