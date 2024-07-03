@@ -7,7 +7,7 @@ import streamlit as st
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 import pandas as pd
-import google_searchconsole
+import searchconsole
 
 # Configuration: Set to True if running locally, False if running on Streamlit Cloud
 IS_LOCAL = False
