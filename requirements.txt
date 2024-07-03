@@ -1,6 +1,8 @@
-streamlit
-google-auth
-google-auth-oauthlib
-google-auth-httplib2
-google-api-python-client
-pandas
+streamlit==1.10.0
+pandas==1.4.2
+google-auth==2.6.6
+google-auth-oauthlib==0.4.6
+google-auth-httplib2==0.1.0
+google-api-python-client==2.36.0
+st-aggrid==0.2.3.post2
+streamlit-elements==0.1.0
