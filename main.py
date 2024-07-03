@@ -178,7 +178,11 @@ def show_dataframe(report):
 def download_csv_link(report):
     try:
         st.write("### DataFrame Info")
-        st.write(report.info())  # Print the DataFrame information for debugging
+        buffer = io.StringIO()
+        report.info(buf=buffer)
+        info = buffer.getvalue()
+        st.text(info)  # Display the DataFrame information
+
         st.write(report.head())  # Show the first few rows of the DataFrame for debugging
 
         def to_csv(df):
