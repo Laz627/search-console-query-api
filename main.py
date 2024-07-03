@@ -49,6 +49,17 @@ def setup_streamlit():
     )
     st.divider()
 
+    st.markdown("""
+    ### Instructions
+    1. Sign in with your Google account.
+    2. Select a Search Console property.
+    3. Choose the desired search type and date range.
+    4. Optionally, apply keyword or URL filters.
+    5. Click "Fetch Data" to retrieve the data.
+    6. Optionally, compare data between different time periods.
+    7. Download the results as a CSV file.
+    """)
+
 def init_session_state():
     if 'selected_property' not in st.session_state:
         st.session_state.selected_property = None
@@ -74,6 +85,10 @@ def init_session_state():
         st.session_state.filter_url = ''
     if 'compare' not in st.session_state:
         st.session_state.compare = False
+    if 'compare_start_date' not in st.session_state:
+        st.session_state.compare_start_date = datetime.date.today() - datetime.timedelta(days=14)
+    if 'compare_end_date' not in st.session_state:
+        st.session_state.compare_end_date = datetime.date.today() - datetime.timedelta(days=7)
 
 # -------------
 # Google Authentication Functions
@@ -135,14 +150,12 @@ def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, d
     if 'device' in dimensions and device_type and device_type != 'All Devices':
         query = query.filter('device', 'equals', device_type.lower())
 
-    if filter_keyword:
-        query = query.filter('query', 'contains', filter_keyword)
-
-    if filter_url:
-        query = query.filter('page', 'contains', filter_url)
-
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
+        if filter_keyword:
+            df = df[df['query'].str.contains(filter_keyword, case=False, na=False)]
+        if filter_url:
+            df = df[df['page'].str.contains(filter_url, case=False, na=False)]
         df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
         return df
     except Exception as e:
@@ -152,6 +165,20 @@ def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, d
 def fetch_data_loading(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keyword=None, filter_url=None):
     with st.spinner('Fetching data...'):
         return fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type, filter_keyword, filter_url)
+
+def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type=None):
+    query = webproperty.query.range(compare_start_date, compare_end_date).search_type(search_type).dimension(*dimensions)
+
+    if 'device' in dimensions and device_type and device_type != 'All Devices':
+        query = query.filter('device', 'equals', device_type.lower())
+
+    try:
+        df = query.limit(MAX_ROWS).get().to_dataframe()
+        df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
+        return df
+    except Exception as e:
+        show_error(e)
+        return pd.DataFrame()
 
 # -------------
 # Utility Functions
@@ -270,9 +297,19 @@ def show_fetch_data_button(webproperty, search_type, start_date, end_date, selec
 def show_comparison_option():
     st.session_state.compare = st.checkbox("Compare Time Periods")
 
+    if st.session_state.compare:
+        st.session_state.compare_start_date = st.date_input("Comparison Start Date", st.session_state.compare_start_date)
+        st.session_state.compare_end_date = st.date_input("Comparison End Date", st.session_state.compare_end_date)
+
 def show_filter_options():
     st.session_state.filter_keyword = st.text_input("Keyword Filter (contains)")
     st.session_state.filter_url = st.text_input("URL or Subfolder Filter (contains)")
+
+def compare_data(report, compare_report):
+    merged_report = report.merge(compare_report, on=['page', 'query'], suffixes=('_current', '_compare'))
+    merged_report['clicks_diff'] = merged_report['clicks_current'] - merged_report['clicks_compare']
+    merged_report['impressions_diff'] = merged_report['impressions_current'] - merged_report['impressions_compare']
+    return merged_report
 
 # -------------
 # Main Streamlit App Function
@@ -313,7 +350,18 @@ def main():
             show_filter_options()
 
             if st.session_state.compare:
-                st.write("Comparison feature is not yet implemented.")  # Placeholder for future implementation
+                compare_start_date = st.session_state.compare_start_date
+                compare_end_date = st.session_state.compare_end_date
+                compare_report = fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, selected_dimensions, st.session_state.selected_device)
+
+                if compare_report is not None and not compare_report.empty:
+                    st.write("### Comparison data fetched successfully!")
+                    report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keyword, st.session_state.filter_url)
+                    merged_report = compare_data(report, compare_report)
+                    show_dataframe(merged_report)
+                    download_csv_link(merged_report)
+                else:
+                    st.write("No comparison data found for the selected parameters.")
             else:
                 show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.filter_keyword, st.session_state.filter_url)
 
