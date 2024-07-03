@@ -12,7 +12,7 @@ RowCap = 25000
 # Directly embedding the Google OAuth credentials
 clientSecret = "your_client_secret"
 clientId = "your_client_id"
-redirectUri = "http://localhost:8501"  # Ensure this matches your registered redirect URI
+redirectUri = "https://search-console-query-api.streamlit.app"
 scopes = ["https://www.googleapis.com/auth/webmasters.readonly"]
 
 # Initialize session state variables
