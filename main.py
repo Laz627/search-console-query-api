@@ -238,9 +238,13 @@ def show_fetch_data_button(webproperty, search_type, start_date, end_date, selec
     if st.button("Fetch Data"):
         report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions)
 
-        if report is not None:
+        if report is not None and not report.empty:
+            st.write("### Data fetched successfully!")
+            st.write(report)  # Display the DataFrame for debugging purposes
             show_dataframe(report)
             download_csv_link(report)
+        else:
+            st.write("No data found for the selected parameters.")
 
 # -------------
 # Main Streamlit App Function
