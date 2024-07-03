@@ -53,8 +53,7 @@ def authenticate_user():
             credentials=credentials,
             cache_discovery=False,
         )
-        account = service.sites().list().execute()
-        return account
+        return service
 
 tab1, tab2 = st.tabs(["Main", "About"])
 
@@ -67,13 +66,13 @@ with tab1:
         st.session_state["credentials"] = {"code": st.experimental_get_query_params()["code"][0]}
         st.session_state["token_received"] = True
 
-    account = authenticate_user()
+    service = authenticate_user()
 
     if st.session_state["token_received"]:
         st.write("### Step 2: Fetch Search Console Data")
 
-        site_list = account['siteEntry']
-        site_urls = [site["siteUrl"] for site in site_list]
+        site_list = service.sites().list().execute()
+        site_urls = [site["siteUrl"] for site in site_list["siteEntry"]]
 
         selected_site = st.selectbox("Select web property", site_urls)
 
@@ -102,17 +101,6 @@ with tab1:
                 filter_keyword = st.text_input("Keyword(s) to filter")
 
         if st.button("Fetch GSC API data"):
-            flow = get_google_auth_flow()
-            flow.fetch_token(code=st.session_state["credentials"]["code"])
-            credentials = flow.credentials
-
-            service = build(
-                "webmasters",
-                "v3",
-                credentials=credentials,
-                cache_discovery=False,
-            )
-
             request = {
                 'startDate': '2022-01-01',
                 'endDate': '2022-12-31',
