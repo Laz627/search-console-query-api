@@ -3,12 +3,6 @@ import pandas as pd
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-try:
-    from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
-except ImportError as e:
-    st.error(f"Failed to import a required package: {e}")
-    st.stop()
-
 # Set page configuration
 st.set_page_config(layout="wide", page_title="Google Search Console Connector", page_icon="🔌")
 
@@ -59,7 +53,7 @@ def authenticate_user():
             credentials=credentials,
             cache_discovery=False,
         )
-        account = searchconsole.account.Account(service, credentials)
+        account = service.sites().list().execute()
         return account
 
 tab1, tab2 = st.tabs(["Main", "About"])
@@ -78,8 +72,8 @@ with tab1:
     if st.session_state["token_received"]:
         st.write("### Step 2: Fetch Search Console Data")
 
-        site_list = account.service.sites().list().execute()
-        site_urls = [site["siteUrl"] for site in site_list["siteEntry"]]
+        site_list = account['siteEntry']
+        site_urls = [site["siteUrl"] for site in site_list]
 
         selected_site = st.selectbox("Select web property", site_urls)
 
@@ -108,18 +102,46 @@ with tab1:
                 filter_keyword = st.text_input("Keyword(s) to filter")
 
         if st.button("Fetch GSC API data"):
-            webproperty = account[selected_site]
-            df = webproperty.query.search_type(search_type).range("today", days=timescale).dimension(dimension).filter(filter_page_or_query, filter_keyword, filter_type).limit(RowCap).get().to_dataframe()
+            flow = get_google_auth_flow()
+            flow.fetch_token(code=st.session_state["credentials"]["code"])
+            credentials = flow.credentials
+
+            service = build(
+                "webmasters",
+                "v3",
+                credentials=credentials,
+                cache_discovery=False,
+            )
+
+            request = {
+                'startDate': '2022-01-01',
+                'endDate': '2022-12-31',
+                'dimensions': [dimension],
+                'searchType': search_type,
+                'rowLimit': RowCap,
+                'dimensionFilterGroups': [{
+                    'filters': [{
+                        'dimension': filter_page_or_query,
+                        'operator': filter_type,
+                        'expression': filter_keyword
+                    }]
+                }]
+            }
 
             if nested_dimension != "none":
-                df = webproperty.query.search_type(search_type).range("today", days=timescale).dimension(dimension, nested_dimension).filter(filter_page_or_query, filter_keyword, filter_type).limit(RowCap).get().to_dataframe()
+                request['dimensions'].append(nested_dimension)
 
             if nested_dimension_2 != "none":
-                df = webproperty.query.search_type(search_type).range("today", days=timescale).dimension(dimension, nested_dimension, nested_dimension_2).filter(filter_page_or_query, filter_keyword, filter_type).limit(RowCap).get().to_dataframe()
+                request['dimensions'].append(nested_dimension_2)
 
-            if df.empty:
+            response = service.searchanalytics().query(siteUrl=selected_site, body=request).execute()
+            rows = response.get('rows', [])
+
+            if not rows:
                 st.warning("No data available for the selected criteria.")
             else:
+                df = pd.DataFrame.from_records([row['keys'] + [row['clicks'], row['impressions'], row['ctr'], row['position']] for row in rows],
+                                                columns=(request['dimensions'] + ['Clicks', 'Impressions', 'CTR', 'Position']))
                 st.write(f"Number of results: {len(df)}")
                 st.dataframe(df)
 
