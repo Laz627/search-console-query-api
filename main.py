@@ -46,6 +46,8 @@ def fetch_search_analytics(service, site_url, start_date, end_date, row_limit=25
     data = []
     start_row = 0
 
+    st.write(f"Using site URL: {site_url}")
+
     while True:
         request = {
             'startDate': start_date,
@@ -59,6 +61,9 @@ def fetch_search_analytics(service, site_url, start_date, end_date, row_limit=25
             response = service.searchanalytics().query(siteUrl=site_url, body=request).execute()
         except HttpError as err:
             st.error(f"An error occurred: {err}")
+            if "User does not have sufficient permission" in str(err):
+                st.error("Please ensure that you have the appropriate permissions for the specified site in Google Search Console.")
+                st.error("Also, make sure the site URL is correctly formatted and matches the URL in Google Search Console.")
             return pd.DataFrame()  # Return an empty DataFrame in case of error
         
         rows = response.get('rows', [])
