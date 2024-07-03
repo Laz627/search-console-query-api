@@ -4,5 +4,4 @@ google-auth==2.6.6
 google-auth-oauthlib==0.4.6
 google-auth-httplib2==0.1.0
 google-api-python-client==2.36.0
-st-aggrid==0.3.3
 streamlit-elements==0.1.0
