@@ -25,21 +25,10 @@ def get_service(credentials_file):
                 credentials_file, SCOPES,
                 redirect_uri='https://search-console-keyword-api.streamlit.app'
             )
-            auth_url, _ = flow.authorization_url(prompt='consent')
-
-            st.write("Please go to this URL and authorize the app:")
-            st.write(auth_url)
-
-            code = st.text_input("Enter the authorization code here:")
-
-            if st.button("Submit Authorization Code"):
-                flow.fetch_token(code=code)
-                creds = flow.credentials
-                # Save the credentials for the next run
-                with open(TOKEN_FILE, 'w') as token:
-                    token.write(creds.to_json())
-            else:
-                st.stop()  # Wait for the user to enter the code
+            creds = flow.run_local_server(port=0)
+            # Save the credentials for the next run
+            with open(TOKEN_FILE, 'w') as token:
+                token.write(creds.to_json())
 
     service = build('webmasters', 'v3', credentials=creds)
     return service
