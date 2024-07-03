@@ -75,15 +75,13 @@ def init_session_state():
 def load_config():
     client_config = {
         "installed": {
-            "client_id": "YOUR_CLIENT_ID",
-            "client_secret": "YOUR_CLIENT_SECRET",
+            "client_id": st.secrets["client_id"],  # Client ID from Streamlit secrets
+            "client_secret": st.secrets["client_secret"],  # Client Secret from Streamlit secrets
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://accounts.google.com/o/oauth2/token",
-            "redirect_uris": (
-                ["http://localhost:8501"]
-                if IS_LOCAL
-                else ["https://your-app-name.streamlit.app"]
-            ),
+            "redirect_uris": [
+                "https://search-console-query-api.streamlit.app"
+            ],
         }
     }
     return client_config
