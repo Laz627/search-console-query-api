@@ -45,14 +45,14 @@ def get_google_auth_flow(client_id, client_secret, redirect_uri):
 
 def authenticate_user(client_id, client_secret, redirect_uri):
     flow = get_google_auth_flow(client_id, client_secret, redirect_uri)
-    auth_url, _ = flow.authorization_url(prompt="consent")
+    auth_url, _ = flow.authorization_url(prompt="consent", redirect_uri=redirect_uri)
     st.experimental_set_query_params(auth_url=auth_url)
     st.markdown(f"[Sign-in with Google]({auth_url})")
     return flow
 
-def fetch_token(flow, code):
+def fetch_token(flow, code, redirect_uri):
     try:
-        flow.fetch_token(code=code)
+        flow.fetch_token(code=code, redirect_uri=redirect_uri)
         credentials = flow.credentials
         st.session_state["credentials"] = credentials
         st.session_state["token_received"] = True
@@ -76,7 +76,7 @@ if st.session_state["credentials_saved"]:
         st.session_state["token_received"] = True
         code = st.experimental_get_query_params()["code"][0]
         flow = get_google_auth_flow(st.session_state["client_id"], st.session_state["client_secret"], st.session_state["redirect_uri"])
-        service = fetch_token(flow, code)
+        service = fetch_token(flow, code, st.session_state["redirect_uri"])
     else:
         flow = authenticate_user(st.session_state["client_id"], st.session_state["client_secret"], st.session_state["redirect_uri"])
 
