@@ -23,7 +23,7 @@ def get_service(credentials_file):
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
                 credentials_file, SCOPES,
-                redirect_uri='https://YOUR_PROJECT_NAME.streamlit.app'
+                redirect_uri='https://search-console-keyword-api.streamlit.app'
             )
             auth_url, _ = flow.authorization_url(prompt='consent')
 
