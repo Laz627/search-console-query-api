@@ -40,33 +40,26 @@ def get_google_auth_flow(client_id, client_secret, redirect_uri):
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
         },
-        scopes=["https://www.googleapis.com/auth/webmasters.readonly"],
-        redirect_uri=redirect_uri
+        scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
     )
 
 def authenticate_user(client_id, client_secret, redirect_uri):
     flow = get_google_auth_flow(client_id, client_secret, redirect_uri)
-    if not st.session_state["token_received"]:
-        auth_url, _ = flow.authorization_url(prompt="consent")
-        st.experimental_set_query_params(auth_url=auth_url)
-        st.markdown(f"[Sign-in with Google]({auth_url})")
-    else:
-        try:
-            code = st.experimental_get_query_params().get("code")[0]
-            flow.fetch_token(code=code)
-            credentials = flow.credentials
-            st.session_state["credentials"] = credentials
+    auth_url, _ = flow.authorization_url(prompt="consent")
+    st.experimental_set_query_params(auth_url=auth_url)
+    st.markdown(f"[Sign-in with Google]({auth_url})")
+    return flow
 
-            service = build(
-                "webmasters",
-                "v3",
-                credentials=credentials,
-                cache_discovery=False,
-            )
-            return service
-        except Exception as e:
-            st.error(f"An error occurred during authentication: {e}")
-            st.stop()
+def fetch_token(flow, code):
+    try:
+        flow.fetch_token(code=code)
+        credentials = flow.credentials
+        st.session_state["credentials"] = credentials
+        st.session_state["token_received"] = True
+        return build("webmasters", "v3", credentials=credentials, cache_discovery=False)
+    except Exception as e:
+        st.error(f"An error occurred during authentication: {e}")
+        st.session_state["token_received"] = False
 
 # User inputs for OAuth credentials
 st.write("### Enter Your Google OAuth Credentials")
@@ -81,8 +74,11 @@ if st.session_state["credentials_saved"]:
     st.write("### Step 1: Google Authentication")
     if "code" in st.experimental_get_query_params():
         st.session_state["token_received"] = True
-
-    service = authenticate_user(st.session_state["client_id"], st.session_state["client_secret"], st.session_state["redirect_uri"])
+        code = st.experimental_get_query_params()["code"][0]
+        flow = get_google_auth_flow(st.session_state["client_id"], st.session_state["client_secret"], st.session_state["redirect_uri"])
+        service = fetch_token(flow, code)
+    else:
+        service = authenticate_user(st.session_state["client_id"], st.session_state["client_secret"], st.session_state["redirect_uri"])
 
     if st.session_state["token_received"]:
         st.write("### Step 2: Fetch Search Console Data")
