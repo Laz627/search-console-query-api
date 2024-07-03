@@ -197,10 +197,10 @@ def download_csv_link(report):
         st.write(report.head())  # Show the first few rows of the DataFrame for debugging
 
         # Ensure the DataFrame index is reset
-        report.reset_index(drop=True, inplace=True)
+        report = report.reset_index(drop=True)
         
         # Convert the DataFrame to CSV
-        csv = report.to_csv(index=False, encoding='utf-8-sig')
+        csv = report.to_csv(index=False)
         
         # Encode CSV data
         b64_csv = base64.b64encode(csv.encode()).decode()
