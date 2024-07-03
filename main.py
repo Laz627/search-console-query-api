@@ -7,7 +7,7 @@ import streamlit as st
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 import pandas as pd
-import searchconsole
+import google_searchconsole
 
 # Configuration: Set to True if running locally, False if running on Streamlit Cloud
 IS_LOCAL = False
@@ -114,7 +114,7 @@ def auth_search_console(client_config, credentials):
         "scopes": credentials.scopes,
         "id_token": getattr(credentials, "id_token", None),
     }
-    return searchconsole.authenticate(client_config=client_config, credentials=token)
+    return google_searchconsole.authenticate(client_config=client_config, credentials=token)
 
 # -------------
 # Data Fetching Functions
