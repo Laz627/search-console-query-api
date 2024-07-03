@@ -178,6 +178,14 @@ def show_dataframe(report):
     with st.expander("Preview the First 100 Rows"):
         st.dataframe(report.head(DF_PREVIEW_ROWS))
 
+    st.write("### DataFrame Structure")
+    buffer = io.StringIO()
+    report.info(buf=buffer)
+    info = buffer.getvalue()
+    st.text(info)  # Display the DataFrame information
+
+    st.write(report.head())  # Show the first few rows of the DataFrame for debugging
+
 def download_csv_link(report):
     try:
         st.write("### DataFrame Info")
@@ -188,7 +196,7 @@ def download_csv_link(report):
 
         st.write(report.head())  # Show the first few rows of the DataFrame for debugging
 
-        # Ensure the DataFrame index is reset
+        # Reset the DataFrame index before converting to CSV
         report.reset_index(drop=True, inplace=True)
 
         def to_csv(df):
