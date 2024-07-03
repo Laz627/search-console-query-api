@@ -30,7 +30,7 @@ def get_service(credentials_file):
             st.write("Please go to this URL and authorize the app:")
             st.write(auth_url)
 
-            code = st.text_input("Enter the authorization code:")
+            code = st.text_input("Enter the authorization code here:")
 
             if code:
                 flow.fetch_token(code=code)
@@ -38,6 +38,8 @@ def get_service(credentials_file):
                 # Save the credentials for the next run
                 with open(TOKEN_FILE, 'w') as token:
                     token.write(creds.to_json())
+            else:
+                st.stop()  # Wait for the user to enter the code
 
     service = build('webmasters', 'v3', credentials=creds)
     return service
