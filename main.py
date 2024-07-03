@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from google_auth_oauthlib.flow import Flow
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 # Set page configuration
@@ -30,7 +30,7 @@ if "credentials_saved" not in st.session_state:
 
 # Google OAuth2.0 Authentication
 def get_google_auth_flow(client_id, client_secret, redirect_uri):
-    return Flow.from_client_config(
+    return InstalledAppFlow.from_client_config(
         {
             "installed": {
                 "client_id": client_id,
@@ -45,14 +45,14 @@ def get_google_auth_flow(client_id, client_secret, redirect_uri):
 
 def authenticate_user(client_id, client_secret, redirect_uri):
     flow = get_google_auth_flow(client_id, client_secret, redirect_uri)
-    auth_url, _ = flow.authorization_url(prompt="consent", redirect_uri=redirect_uri)
+    auth_url, _ = flow.authorization_url(prompt="consent")
     st.experimental_set_query_params(auth_url=auth_url)
     st.markdown(f"[Sign-in with Google]({auth_url})")
     return flow
 
 def fetch_token(flow, code):
     try:
-        flow.fetch_token(code=code, redirect_uri=st.session_state["redirect_uri"])
+        flow.fetch_token(code=code)
         credentials = flow.credentials
         st.session_state["credentials"] = credentials
         st.session_state["token_received"] = True
@@ -78,7 +78,7 @@ if st.session_state["credentials_saved"]:
         flow = get_google_auth_flow(st.session_state["client_id"], st.session_state["client_secret"], st.session_state["redirect_uri"])
         service = fetch_token(flow, code)
     else:
-        service = authenticate_user(st.session_state["client_id"], st.session_state["client_secret"], st.session_state["redirect_uri"])
+        flow = authenticate_user(st.session_state["client_id"], st.session_state["client_secret"], st.session_state["redirect_uri"])
 
     if st.session_state["token_received"]:
         st.write("### Step 2: Fetch Search Console Data")
