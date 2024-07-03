@@ -43,10 +43,10 @@ def get_google_auth_flow(client_id, client_secret, redirect_uri):
 def authenticate_user(client_id, client_secret, redirect_uri):
     flow = get_google_auth_flow(client_id, client_secret, redirect_uri)
     if not st.session_state["token_received"]:
-        auth_url, _ = flow.authorization_url(prompt="consent", redirect_uri=redirect_uri)
+        auth_url, _ = flow.authorization_url(prompt="consent")
         st.markdown(f"[Sign-in with Google]({auth_url})")
     else:
-        flow.fetch_token(code=st.session_state["credentials"]["code"], redirect_uri=redirect_uri)
+        flow.fetch_token(code=st.session_state["credentials"]["code"])
         credentials = flow.credentials
         st.session_state["credentials"] = credentials
 
@@ -62,7 +62,7 @@ def authenticate_user(client_id, client_secret, redirect_uri):
 st.write("### Enter Your Google OAuth Credentials")
 st.session_state["client_id"] = st.text_input("Client ID", type="password")
 st.session_state["client_secret"] = st.text_input("Client Secret", type="password")
-st.session_state["redirect_uri"] = st.text_input("Redirect URI", value="https://search-console-query-api.streamlit.app")  # Update to your default or user's URL
+st.session_state["redirect_uri"] = st.text_input("Redirect URI", value="https://your-app-name.streamlit.app")  # Update to your default or user's URL
 
 if st.button("Save Credentials"):
     st.session_state["credentials_saved"] = True
