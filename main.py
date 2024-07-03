@@ -38,6 +38,7 @@ def get_google_auth_flow(client_id, client_secret, redirect_uri):
             }
         },
         scopes=["https://www.googleapis.com/auth/webmasters.readonly"],
+        redirect_uri=redirect_uri
     )
 
 def authenticate_user(client_id, client_secret, redirect_uri):
