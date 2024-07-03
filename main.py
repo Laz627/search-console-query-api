@@ -42,7 +42,7 @@ def get_service(credentials_file):
     service = build('webmasters', 'v3', credentials=creds)
     return service
 
-def fetch_search_analytics(service, site_url, subfolder, start_date, end_date, row_limit=25000):
+def fetch_search_analytics(service, site_url, start_date, end_date, row_limit=25000):
     data = []
     start_row = 0
 
@@ -52,18 +52,7 @@ def fetch_search_analytics(service, site_url, subfolder, start_date, end_date, r
             'endDate': end_date,
             'dimensions': ['query', 'page'],
             'rowLimit': row_limit,
-            'startRow': start_row,
-            'dimensionFilterGroups': [
-                {
-                    'filters': [
-                        {
-                            'dimension': 'page',
-                            'operator': 'contains',
-                            'expression': subfolder
-                        }
-                    ]
-                }
-            ]
+            'startRow': start_row
         }
         
         try:
@@ -90,14 +79,14 @@ def fetch_search_analytics(service, site_url, subfolder, start_date, end_date, r
     
     return pd.DataFrame(data)
 
-def process_data(credentials_file, site_url, subfolder, date_ranges):
+def process_data(credentials_file, site_url, date_ranges):
     service = get_service(credentials_file)
     
     data_frames = []
     total_ranges = len(date_ranges)
     for idx, date_range in enumerate(date_ranges, 1):
         st.write(f"Processing data for date range: {date_range['label']} ({idx}/{total_ranges})")
-        df = fetch_search_analytics(service, site_url, subfolder, date_range['startDate'], date_range['endDate'])
+        df = fetch_search_analytics(service, site_url, date_range['startDate'], date_range['endDate'])
         if df.empty:
             st.error("Failed to fetch data.")
             return pd.DataFrame()  # Return an empty DataFrame if fetching fails
@@ -141,14 +130,13 @@ st.title('Google Search Console Data Analysis')
 uploaded_file = st.file_uploader("Upload your OAuth 2.0 credentials JSON file", type="json")
 
 site_url = st.text_input("Enter your root domain (e.g., https://www.example.com)")
-subfolder = st.text_input("Enter the subfolder/page to filter by (e.g., /subfolder)")
 
 date_range_1_start = st.date_input("Start date for the first date range")
 date_range_1_end = st.date_input("End date for the first date range")
 date_range_2_start = st.date_input("Start date for the second date range")
 date_range_2_end = st.date_input("End date for the second date range")
 
-if uploaded_file and site_url and subfolder and date_range_1_start and date_range_1_end and date_range_2_start and date_range_2_end:
+if uploaded_file and site_url and date_range_1_start and date_range_1_end and date_range_2_start and date_range_2_end:
     date_ranges = [
         {'startDate': date_range_1_start.strftime('%Y-%m-%d'), 'endDate': date_range_1_end.strftime('%Y-%m-%d'), 'label': 'Range 1'},
         {'startDate': date_range_2_start.strftime('%Y-%m-%d'), 'endDate': date_range_2_end.strftime('%Y-%m-%d'), 'label': 'Range 2'}
@@ -158,7 +146,7 @@ if uploaded_file and site_url and subfolder and date_range_1_start and date_rang
         f.write(uploaded_file.getbuffer())
         
     if st.button('Fetch and Process Data'):
-        df = process_data("uploaded_credentials.json", site_url, subfolder, date_ranges)
+        df = process_data("uploaded_credentials.json", site_url, date_ranges)
         st.write("Data fetched and processed successfully.")
         st.write("Here's a preview of the data:")
         st.write(df.head())
