@@ -176,13 +176,16 @@ def show_dataframe(report):
         st.dataframe(report.head(DF_PREVIEW_ROWS))
 
 def download_csv_link(report):
-    def to_csv(df):
-        return df.to_csv(index=False, encoding='utf-8-sig')
+    try:
+        def to_csv(df):
+            return df.to_csv(index=False, encoding='utf-8-sig')
 
-    csv = to_csv(report)
-    b64_csv = base64.b64encode(csv.encode()).decode()
-    href = f'<a href="data:file/csv;base64,{b64_csv}" download="search_console_data.csv">Download CSV File</a>'
-    st.markdown(href, unsafe_allow_html=True)
+        csv = to_csv(report)
+        b64_csv = base64.b64encode(csv.encode()).decode()
+        href = f'<a href="data:file/csv;base64,{b64_csv}" download="search_console_data.csv">Download CSV File</a>'
+        st.markdown(href, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Error converting DataFrame to CSV: {e}")
 
 # -------------
 # Streamlit UI Components
