@@ -103,12 +103,12 @@ def process_data(credentials_file, site_url, subfolder, date_ranges):
     comparison_df = comparison_df.fillna(0)
 
     st.write("Calculating differences between the specified date ranges for clicks and impressions...")
-    if 'clicks_2024' in comparison_df.columns and 'clicks_2023' in comparison_df.columns:
-        comparison_df['clicks_diff'] = comparison_df['clicks_2024'] - comparison_df['clicks_2023']
-        comparison_df['impressions_diff'] = comparison_df['impressions_2024'] - comparison_df['impressions_2023']
+    if 'clicks_Range 1' in comparison_df.columns and 'clicks_Range 2' in comparison_df.columns:
+        comparison_df['clicks_diff'] = comparison_df['clicks_Range 2'] - comparison_df['clicks_Range 1']
+        comparison_df['impressions_diff'] = comparison_df['impressions_Range 2'] - comparison_df['impressions_Range 1']
 
     st.write("Sorting data by clicks for the latest date range from largest to smallest...")
-    comparison_df = comparison_df.sort_values(by='clicks_2024', ascending=False)
+    comparison_df = comparison_df.sort_values(by='clicks_Range 2', ascending=False)
     
     st.write("Tagging keywords as branded or nonbranded...")
     comparison_df['keyword_type'] = comparison_df['query_'].apply(lambda x: 'branded' if 'us bank' in x.lower() else 'nonbranded')
