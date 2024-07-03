@@ -21,10 +21,19 @@ def get_service(credentials_file):
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
-            creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
-        with open(TOKEN_FILE, 'w') as token:
-            token.write(creds.to_json())
+            auth_url, _ = flow.authorization_url(prompt='consent')
+
+            st.write("Please go to this URL and authorize the app:")
+            st.write(auth_url)
+
+            code = st.text_input("Enter the authorization code:")
+
+            if code:
+                flow.fetch_token(code=code)
+                creds = flow.credentials
+                # Save the credentials for the next run
+                with open(TOKEN_FILE, 'w') as token:
+                    token.write(creds.to_json())
 
     service = build('webmasters', 'v3', credentials=creds)
     return service
