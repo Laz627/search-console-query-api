@@ -17,13 +17,16 @@ if "token_received" not in st.session_state:
     st.session_state["token_received"] = False
 
 if "client_id" not in st.session_state:
-    st.session_state["client_id"] = None
+    st.session_state["client_id"] = ""
 
 if "client_secret" not in st.session_state:
-    st.session_state["client_secret"] = None
+    st.session_state["client_secret"] = ""
 
 if "redirect_uri" not in st.session_state:
-    st.session_state["redirect_uri"] = None
+    st.session_state["redirect_uri"] = ""
+
+if "credentials_saved" not in st.session_state:
+    st.session_state["credentials_saved"] = False
 
 # Google OAuth2.0 Authentication
 def get_google_auth_flow(client_id, client_secret, redirect_uri):
@@ -45,9 +48,10 @@ def authenticate_user(client_id, client_secret, redirect_uri):
     flow = get_google_auth_flow(client_id, client_secret, redirect_uri)
     if not st.session_state["token_received"]:
         auth_url, _ = flow.authorization_url(prompt="consent")
+        st.experimental_set_query_params(auth_url=auth_url)
         st.markdown(f"[Sign-in with Google]({auth_url})")
     else:
-        flow.fetch_token(code=st.session_state["credentials"]["code"])
+        flow.fetch_token(code=st.experimental_get_query_params().get("code")[0])
         credentials = flow.credentials
         st.session_state["credentials"] = credentials
 
@@ -61,17 +65,16 @@ def authenticate_user(client_id, client_secret, redirect_uri):
 
 # User inputs for OAuth credentials
 st.write("### Enter Your Google OAuth Credentials")
-st.session_state["client_id"] = st.text_input("Client ID", type="password")
-st.session_state["client_secret"] = st.text_input("Client Secret", type="password")
-st.session_state["redirect_uri"] = st.text_input("Redirect URI", value="https://your-app-name.streamlit.app")  # Update to your default or user's URL
+st.session_state["client_id"] = st.text_input("Client ID", type="password", value=st.session_state["client_id"])
+st.session_state["client_secret"] = st.text_input("Client Secret", type="password", value=st.session_state["client_secret"])
+st.session_state["redirect_uri"] = st.text_input("Redirect URI", value="https://your-app-name.streamlit.app" if st.session_state["redirect_uri"] == "" else st.session_state["redirect_uri"])  # Update to your default or user's URL
 
 if st.button("Save Credentials"):
     st.session_state["credentials_saved"] = True
 
-if st.session_state.get("credentials_saved"):
+if st.session_state["credentials_saved"]:
     st.write("### Step 1: Google Authentication")
     if "code" in st.experimental_get_query_params():
-        st.session_state["credentials"] = {"code": st.experimental_get_query_params()["code"][0]}
         st.session_state["token_received"] = True
 
     service = authenticate_user(st.session_state["client_id"], st.session_state["client_secret"], st.session_state["redirect_uri"])
