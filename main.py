@@ -12,7 +12,7 @@ RowCap = 25000
 # Directly embedding the Google OAuth credentials
 clientSecret = "your_client_secret"
 clientId = "your_client_id"
-redirectUri = "https://search-console-query-api.streamlit.app"
+redirectUri = "https://your-app-name.streamlit.app"  # Update this to your deployed app URL
 scopes = ["https://www.googleapis.com/auth/webmasters.readonly"]
 
 # Initialize session state variables
@@ -40,10 +40,10 @@ def get_google_auth_flow():
 def authenticate_user():
     flow = get_google_auth_flow()
     if not st.session_state["token_received"]:
-        auth_url, _ = flow.authorization_url(prompt="consent", redirect_uri=redirectUri)
+        auth_url, _ = flow.authorization_url(prompt="consent")
         st.markdown(f"[Sign-in with Google]({auth_url})")
     else:
-        flow.fetch_token(code=st.session_state["credentials"]["code"], redirect_uri=redirectUri)
+        flow.fetch_token(code=st.session_state["credentials"]["code"])
         credentials = flow.credentials
         st.session_state["credentials"] = credentials
 
