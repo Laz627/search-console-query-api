@@ -1,7 +1,7 @@
 # Standard library imports
 import datetime
 import base64
-import io  # Added import for io
+import io
 
 # Related third-party imports
 import streamlit as st
@@ -196,21 +196,18 @@ def download_csv_link(report):
 
         st.write(report.head())  # Show the first few rows of the DataFrame for debugging
 
-        # Ensure the DataFrame index is reset
-        report = report.reset_index(drop=True)
-        
-        # Convert the DataFrame to CSV
-        csv = report.to_csv(index=False)
-        
-        # Encode CSV data
+        # Reset the DataFrame index before converting to CSV
+        report.reset_index(drop=True, inplace=True)
+
+        def to_csv(df):
+            return df.to_csv(index=False, encoding='utf-8-sig')
+
+        csv = to_csv(report)
         b64_csv = base64.b64encode(csv.encode()).decode()
-        
-        # Create download link
         href = f'<a href="data:file/csv;base64,{b64_csv}" download="search_console_data.csv">Download CSV File</a>'
         st.markdown(href, unsafe_allow_html=True)
     except Exception as e:
         st.error(f"Error converting DataFrame to CSV: {e}")
-
 
 # -------------
 # Streamlit UI Components
