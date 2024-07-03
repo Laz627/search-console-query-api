@@ -22,8 +22,7 @@ def get_service(credentials_file):
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
-                credentials_file, SCOPES,
-                redirect_uri='https://search-console-keyword-api.streamlit.app'
+                credentials_file, SCOPES
             )
             auth_url, _ = flow.authorization_url(prompt='consent')
 
@@ -32,7 +31,7 @@ def get_service(credentials_file):
 
             code = st.text_input("Enter the authorization code here:")
 
-            if code:
+            if st.button("Submit Authorization Code"):
                 flow.fetch_token(code=code)
                 creds = flow.credentials
                 # Save the credentials for the next run
