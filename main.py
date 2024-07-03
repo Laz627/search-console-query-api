@@ -12,7 +12,7 @@ RowCap = 25000
 # Directly embedding the Google OAuth credentials
 clientSecret = "your_client_secret"
 clientId = "your_client_id"
-redirectUri = "https://your-app-name.streamlit.app"  # Update this to your deployed app URL
+redirectUri = "https://search-console-query-api.streamlit.app"  # Update this to your deployed app URL
 scopes = ["https://www.googleapis.com/auth/webmasters.readonly"]
 
 # Initialize session state variables
