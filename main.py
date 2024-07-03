@@ -51,17 +51,22 @@ def authenticate_user(client_id, client_secret, redirect_uri):
         st.experimental_set_query_params(auth_url=auth_url)
         st.markdown(f"[Sign-in with Google]({auth_url})")
     else:
-        flow.fetch_token(code=st.experimental_get_query_params().get("code")[0])
-        credentials = flow.credentials
-        st.session_state["credentials"] = credentials
+        try:
+            code = st.experimental_get_query_params().get("code")[0]
+            flow.fetch_token(code=code)
+            credentials = flow.credentials
+            st.session_state["credentials"] = credentials
 
-        service = build(
-            "webmasters",
-            "v3",
-            credentials=credentials,
-            cache_discovery=False,
-        )
-        return service
+            service = build(
+                "webmasters",
+                "v3",
+                credentials=credentials,
+                cache_discovery=False,
+            )
+            return service
+        except Exception as e:
+            st.error(f"An error occurred during authentication: {e}")
+            st.stop()
 
 # User inputs for OAuth credentials
 st.write("### Enter Your Google OAuth Credentials")
@@ -82,70 +87,73 @@ if st.session_state["credentials_saved"]:
     if st.session_state["token_received"]:
         st.write("### Step 2: Fetch Search Console Data")
 
-        site_list = service.sites().list().execute()
-        site_urls = [site["siteUrl"] for site in site_list["siteEntry"]]
+        try:
+            site_list = service.sites().list().execute()
+            site_urls = [site["siteUrl"] for site in site_list["siteEntry"]]
 
-        selected_site = st.selectbox("Select web property", site_urls)
+            selected_site = st.selectbox("Select web property", site_urls)
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            dimension = st.selectbox("Dimension", ["query", "page", "date", "device", "searchAppearance", "country"])
-        with col2:
-            nested_dimension = st.selectbox("Nested dimension", ["none", "query", "page", "date", "device", "searchAppearance", "country"])
-        with col3:
-            nested_dimension_2 = st.selectbox("Nested dimension 2", ["none", "query", "page", "date", "device", "searchAppearance", "country"])
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                dimension = st.selectbox("Dimension", ["query", "page", "date", "device", "searchAppearance", "country"])
+            with col2:
+                nested_dimension = st.selectbox("Nested dimension", ["none", "query", "page", "date", "device", "searchAppearance", "country"])
+            with col3:
+                nested_dimension_2 = st.selectbox("Nested dimension 2", ["none", "query", "page", "date", "device", "searchAppearance", "country"])
 
-        col1, col2 = st.columns(2)
-        with col1:
-            search_type = st.selectbox("Search type", ["web", "video", "image", "news", "googleNews"])
-        with col2:
-            timescale = st.selectbox("Date range", ["Last 7 days", "Last 30 days", "Last 3 months", "Last 6 months", "Last 12 months", "Last 16 months"])
+            col1, col2 = st.columns(2)
+            with col1:
+                search_type = st.selectbox("Search type", ["web", "video", "image", "news", "googleNews"])
+            with col2:
+                timescale = st.selectbox("Date range", ["Last 7 days", "Last 30 days", "Last 3 months", "Last 6 months", "Last 12 months", "Last 16 months"])
 
-        # Advanced Filters
-        with st.expander("Advanced Filters", expanded=False):
-            filter_col1, filter_col2, filter_col3 = st.columns(3)
-            with filter_col1:
-                filter_page_or_query = st.selectbox("Dimension to filter #1", ["query", "page", "device", "searchAppearance", "country"])
-            with filter_col2:
-                filter_type = st.selectbox("Filter type", ["contains", "equals", "notContains", "notEquals", "includingRegex", "excludingRegex"])
-            with filter_col3:
-                filter_keyword = st.text_input("Keyword(s) to filter")
+            # Advanced Filters
+            with st.expander("Advanced Filters", expanded=False):
+                filter_col1, filter_col2, filter_col3 = st.columns(3)
+                with filter_col1:
+                    filter_page_or_query = st.selectbox("Dimension to filter #1", ["query", "page", "device", "searchAppearance", "country"])
+                with filter_col2:
+                    filter_type = st.selectbox("Filter type", ["contains", "equals", "notContains", "notEquals", "includingRegex", "excludingRegex"])
+                with filter_col3:
+                    filter_keyword = st.text_input("Keyword(s) to filter")
 
-        if st.button("Fetch GSC API data"):
-            request = {
-                'startDate': '2022-01-01',
-                'endDate': '2022-12-31',
-                'dimensions': [dimension],
-                'searchType': search_type,
-                'rowLimit': RowCap,
-                'dimensionFilterGroups': [{
-                    'filters': [{
-                        'dimension': filter_page_or_query,
-                        'operator': filter_type,
-                        'expression': filter_keyword
+            if st.button("Fetch GSC API data"):
+                request = {
+                    'startDate': '2022-01-01',
+                    'endDate': '2022-12-31',
+                    'dimensions': [dimension],
+                    'searchType': search_type,
+                    'rowLimit': RowCap,
+                    'dimensionFilterGroups': [{
+                        'filters': [{
+                            'dimension': filter_page_or_query,
+                            'operator': filter_type,
+                            'expression': filter_keyword
+                        }]
                     }]
-                }]
-            }
+                }
 
-            if nested_dimension != "none":
-                request['dimensions'].append(nested_dimension)
+                if nested_dimension != "none":
+                    request['dimensions'].append(nested_dimension)
 
-            if nested_dimension_2 != "none":
-                request['dimensions'].append(nested_dimension_2)
+                if nested_dimension_2 != "none":
+                    request['dimensions'].append(nested_dimension_2)
 
-            response = service.searchanalytics().query(siteUrl=selected_site, body=request).execute()
-            rows = response.get('rows', [])
+                response = service.searchanalytics().query(siteUrl=selected_site, body=request).execute()
+                rows = response.get('rows', [])
 
-            if not rows:
-                st.warning("No data available for the selected criteria.")
-            else:
-                df = pd.DataFrame.from_records([row['keys'] + [row['clicks'], row['impressions'], row['ctr'], row['position']] for row in rows],
-                                                columns=(request['dimensions'] + ['Clicks', 'Impressions', 'CTR', 'Position']))
-                st.write(f"Number of results: {len(df)}")
-                st.dataframe(df)
+                if not rows:
+                    st.warning("No data available for the selected criteria.")
+                else:
+                    df = pd.DataFrame.from_records([row['keys'] + [row['clicks'], row['impressions'], row['ctr'], row['position']] for row in rows],
+                                                    columns=(request['dimensions'] + ['Clicks', 'Impressions', 'CTR', 'Position']))
+                    st.write(f"Number of results: {len(df)}")
+                    st.dataframe(df)
 
-                csv = df.to_csv().encode("utf-8")
-                st.download_button(label="Download CSV", data=csv, file_name="gsc_data.csv", mime="text/csv")
+                    csv = df.to_csv().encode("utf-8")
+                    st.download_button(label="Download CSV", data=csv, file_name="gsc_data.csv", mime="text/csv")
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
 
 st.write("### About this app")
 st.markdown("""
