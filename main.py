@@ -80,9 +80,9 @@ def init_session_state():
     if 'custom_end_date' not in st.session_state:
         st.session_state.custom_end_date = datetime.date.today()
     if 'filter_keywords' not in st.session_state:
-        st.session_state.filter_keywords = []
+        st.session_state.filter_keywords = ''
     if 'filter_keywords_not' not in st.session_state:
-        st.session_state.filter_keywords_not = []
+        st.session_state.filter_keywords_not = ''
     if 'filter_url' not in st.session_state:
         st.session_state.filter_url = ''
     if 'compare' not in st.session_state:
@@ -156,14 +156,13 @@ def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, d
         df = query.limit(MAX_ROWS).get().to_dataframe()
 
         if filter_keywords:
-            keywords = filter_keywords.split(',')
-            for keyword in keywords:
-                df = df[df['query'].str.contains(keyword.strip(), case=False, na=False)]
+            keywords = [kw.strip() for kw in filter_keywords.split(',')]
+            df = df[df['query'].str.contains('|'.join(keywords), case=False, na=False)]
 
         if filter_keywords_not:
-            keywords_not = filter_keywords_not.split(',')
+            keywords_not = [kw.strip() for kw in filter_keywords_not.split(',')]
             for keyword in keywords_not:
-                df = df[~df['query'].str.contains(keyword.strip(), case=False, na=False)]
+                df = df[~df['query'].str.contains(keyword, case=False, na=False)]
 
         if filter_url:
             df = df[df['page'].str.contains(filter_url, case=False, na=False)]
