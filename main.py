@@ -286,19 +286,39 @@ def show_dimensions_selector(search_type):
 
 def show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, filter_keywords, filter_keywords_not, filter_url):
     if st.button("Fetch Data"):
-        report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions, filter_keywords=filter_keywords, filter_keywords_not=filter_keywords_not, filter_url=filter_url)
+        if st.session_state.compare:
+            compare_start_date = st.session_state.compare_start_date
+            compare_end_date = st.session_state.compare_end_date
+            compare_report = fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, selected_dimensions, st.session_state.selected_device)
 
-        if report is not None and not report.empty:
-            st.write("### Data fetched successfully!")
-            show_dataframe(report)
-            download_csv_link(report)
+            if compare_report is not None and not compare_report.empty:
+                st.write("### Comparison data fetched successfully!")
+                report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
+                merged_report = compare_data(report, compare_report)
+                show_dataframe(merged_report)
+                download_csv_link(merged_report)
+            else:
+                st.write("No comparison data found for the selected parameters.")
         else:
-            st.write("No data found for the selected parameters.")
+            report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
+
+            if report is not None and not report.empty:
+                st.write("### Data fetched successfully!")
+                show_dataframe(report)
+                download_csv_link(report)
+            else:
+                st.write("No data found for the selected parameters.")
 
 def show_comparison_option():
-    st.session_state.compare = st.checkbox("Compare Time Periods")
+    if 'compare' not in st.session_state:
+        st.session_state.compare = False
+    st.session_state.compare = st.checkbox("Compare Time Periods", value=st.session_state.compare)
 
     if st.session_state.compare:
+        if 'compare_start_date' not in st.session_state:
+            st.session_state.compare_start_date = datetime.date.today() - datetime.timedelta(days=14)
+        if 'compare_end_date' not in st.session_state:
+            st.session_state.compare_end_date = datetime.date.today() - datetime.timedelta(days=7)
         st.session_state.compare_start_date = st.date_input("Comparison Start Date", st.session_state.compare_start_date)
         st.session_state.compare_end_date = st.date_input("Comparison End Date", st.session_state.compare_end_date)
 
@@ -351,21 +371,8 @@ def main():
             show_comparison_option()
             show_filter_options()
 
-            if st.session_state.compare:
-                compare_start_date = st.session_state.compare_start_date
-                compare_end_date = st.session_state.compare_end_date
-                compare_report = fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, selected_dimensions, st.session_state.selected_device)
-
-                if compare_report is not None and not compare_report.empty:
-                    st.write("### Comparison data fetched successfully!")
-                    report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
-                    merged_report = compare_data(report, compare_report)
-                    show_dataframe(merged_report)
-                    download_csv_link(merged_report)
-                else:
-                    st.write("No comparison data found for the selected parameters.")
-            else:
-                show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
+            show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
 
 if __name__ == "__main__":
     main()
+
