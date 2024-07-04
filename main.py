@@ -39,16 +39,6 @@ def setup_streamlit():
     st.subheader("Export Up To 250,000 Keywords Seamlessly")
     st.markdown("By: Brandon Lazovic")
 
-    st.markdown(
-        """
-        <p>
-            Created by <a href="https://twitter.com/YourTwitterHandle" target="_blank">YourName</a> |
-            <a href="https://yourwebsite.com" target="_blank">More Apps & Scripts on my Website</a>
-        """,
-        unsafe_allow_html=True
-    )
-    st.divider()
-
     st.markdown("""
     ### Instructions
     1. Sign in with your Google account.
