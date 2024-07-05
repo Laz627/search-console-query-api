@@ -175,10 +175,6 @@ def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, d
         show_error(e)
         return pd.DataFrame()
 
-async def fetch_compare_data_async(webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type=None, progress=None):
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, fetch_compare_data, webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type, progress)
-
 def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type=None, progress=None):
     query = webproperty.query.range(compare_start_date, compare_end_date).search_type(search_type).dimension(*dimensions)
 
@@ -194,7 +190,6 @@ def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end
         current_step += 1
         if progress:
             progress.progress(current_step / total_steps)
-
         return df
     except Exception as e:
         show_error(e)
@@ -314,18 +309,18 @@ def show_fetch_data_button(webproperty, search_type, start_date, end_date, selec
         if st.session_state.compare:
             compare_start_date = st.session_state.compare_start_date
             compare_end_date = st.session_state.compare_end_date
-            compare_report = asyncio.run(fetch_compare_data_async(webproperty, search_type, compare_start_date, compare_end_date, selected_dimensions, st.session_state.selected_device, progress))
+            compare_report = fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, selected_dimensions, st.session_state.selected_device, progress)
 
             if compare_report is not None and not compare_report.empty:
                 st.write("### Comparison data fetched successfully!")
-                report = asyncio.run(fetch_gsc_data_async(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url, progress))
+                report = fetch_gsc_data(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url, progress)
                 merged_report = compare_data(report, compare_report)
                 show_dataframe(merged_report)
                 download_csv_link(merged_report)
             else:
                 st.write("No comparison data found for the selected parameters.")
         else:
-            report = asyncio.run(fetch_gsc_data_async(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url, progress))
+            report = fetch_gsc_data(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url, progress)
 
             if report is not None and not report.empty:
                 st.write("### Data fetched successfully!")
@@ -367,7 +362,7 @@ def main():
     client_config = load_config()
     st.session_state.auth_flow, st.session_state.auth_url = google_auth(client_config)
 
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params()
     auth_code = query_params.get("code", [None])[0]
 
     if auth_code and not st.session_state.get('credentials'):
