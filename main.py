@@ -131,7 +131,7 @@ def auth_search_console(client_config, credentials):
 # Data Fetching Functions
 # -------------
 
-def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keywords=None, filter_keywords_not=None, filter_url=None):
+def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keywords=None, filter_keywords_not=None, filter_url=None, progress=None):
     query = webproperty.query.range(start_date, end_date).search_type(search_type).dimension(*dimensions)
 
     if 'device' in dimensions and device_type and device_type != 'All Devices':
@@ -139,22 +139,30 @@ def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, d
 
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
+        if progress:
+            progress.progress(0.33)
 
         if filter_keywords:
             keywords = [kw.strip() for kw in filter_keywords.split(',')]
             df = df[df['query'].str.contains('|'.join(keywords), case=False, na=False)]
+            if progress:
+                progress.progress(0.66)
 
         if filter_keywords_not:
             keywords_not = [kw.strip() for kw in filter_keywords_not.split(',')]
             for keyword in keywords_not:
                 df = df[~df['query'].str.contains(keyword, case=False, na=False)]
+            if progress:
+                progress.progress(1.0)
 
         if filter_url:
             df = df[df['page'].str.contains(filter_url, case=False, na=False)]
-        
+
         df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
         return df
     except Exception as e:
+        if progress:
+            progress.progress(1.0)
         show_error(e)
         return pd.DataFrame()
 
@@ -290,14 +298,14 @@ def show_fetch_data_button(webproperty, search_type, start_date, end_date, selec
 
             if compare_report is not None and not compare_report.empty:
                 st.write("### Comparison data fetched successfully!")
-                report = fetch_gsc_data(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
+                report = fetch_gsc_data(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url, progress)
                 merged_report = compare_data(report, compare_report)
                 show_dataframe(merged_report)
                 download_csv_link(merged_report)
             else:
                 st.write("No comparison data found for the selected parameters.")
         else:
-            report = fetch_gsc_data(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
+            report = fetch_gsc_data(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url, progress)
 
             if report is not None and not report.empty:
                 st.write("### Data fetched successfully!")
