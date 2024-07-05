@@ -137,32 +137,37 @@ def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, d
     if 'device' in dimensions and device_type and device_type != 'All Devices':
         query = query.filter('device', 'equals', device_type.lower())
 
+    st.write("Fetching data...")
+    progress.progress(0.2)
+
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
-        if progress:
-            progress.progress(0.33)
+        st.write("Data fetched.")
+        progress.progress(0.4)
 
         if filter_keywords:
+            st.write("Applying keyword filter (contains)...")
             keywords = [kw.strip() for kw in filter_keywords.split(',')]
             df = df[df['query'].str.contains('|'.join(keywords), case=False, na=False)]
-            if progress:
-                progress.progress(0.66)
+            progress.progress(0.6)
 
         if filter_keywords_not:
+            st.write("Applying keyword filter (does not contain)...")
             keywords_not = [kw.strip() for kw in filter_keywords_not.split(',')]
             for keyword in keywords_not:
                 df = df[~df['query'].str.contains(keyword, case=False, na=False)]
-            if progress:
-                progress.progress(1.0)
+            progress.progress(0.8)
 
         if filter_url:
+            st.write("Applying URL filter...")
             df = df[df['page'].str.contains(filter_url, case=False, na=False)]
 
+        st.write("Data filtering complete.")
         df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
+        progress.progress(1.0)
         return df
     except Exception as e:
-        if progress:
-            progress.progress(1.0)
+        progress.progress(1.0)
         show_error(e)
         return pd.DataFrame()
 
@@ -172,11 +177,17 @@ def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end
     if 'device' in dimensions and device_type and device_type != 'All Devices':
         query = query.filter('device', 'equals', device_type.lower())
 
+    st.write("Fetching comparison data...")
+    progress = st.progress(0.5)
+
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
         df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
+        st.write("Comparison data fetched.")
+        progress.progress(1.0)
         return df
     except Exception as e:
+        progress.progress(1.0)
         show_error(e)
         return pd.DataFrame()
 
