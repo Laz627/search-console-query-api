@@ -2,6 +2,7 @@
 import datetime
 import base64
 import io
+import asyncio
 
 # Related third-party imports
 import streamlit as st
@@ -131,44 +132,58 @@ def auth_search_console(client_config, credentials):
 # Data Fetching Functions
 # -------------
 
-def list_gsc_properties(credentials):
-    service = build('webmasters', 'v3', credentials=credentials)
-    site_list = service.sites().list().execute()
-    return [site['siteUrl'] for site in site_list.get('siteEntry', [])] or ["No properties found"]
+async def fetch_gsc_data_async(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keywords=None, filter_keywords_not=None, filter_url=None, progress=None):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, fetch_gsc_data, webproperty, search_type, start_date, end_date, dimensions, device_type, filter_keywords, filter_keywords_not, filter_url, progress)
 
-def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keywords=None, filter_keywords_not=None, filter_url=None):
+def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keywords=None, filter_keywords_not=None, filter_url=None, progress=None):
     query = webproperty.query.range(start_date, end_date).search_type(search_type).dimension(*dimensions)
 
     if 'device' in dimensions and device_type and device_type != 'All Devices':
         query = query.filter('device', 'equals', device_type.lower())
 
+    total_steps = 3
+    current_step = 0
+
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
+        current_step += 1
+        if progress:
+            progress.progress(current_step / total_steps)
 
         if filter_keywords:
             keywords = [kw.strip() for kw in filter_keywords.split(',')]
             df = df[df['query'].str.contains('|'.join(keywords), case=False, na=False)]
+            current_step += 1
+            if progress:
+                progress.progress(current_step / total_steps)
 
         if filter_keywords_not:
             keywords_not = [kw.strip() for kw in filter_keywords_not.split(',')]
             for keyword in keywords_not:
                 df = df[~df['query'].str.contains(keyword, case=False, na=False)]
+            current_step += 1
+            if progress:
+                progress.progress(current_step / total_steps)
 
         if filter_url:
             df = df[df['page'].str.contains(filter_url, case=False, na=False)]
-        
+
         df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
         return df
     except Exception as e:
         show_error(e)
         return pd.DataFrame()
 
-def fetch_data_loading(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keywords=None, filter_keywords_not=None, filter_url=None):
-    with st.spinner('Fetching data...'):
-        return fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type, filter_keywords, filter_keywords_not, filter_url)
+async def fetch_compare_data_async(webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type=None, progress=None):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, fetch_compare_data, webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type, progress)
 
-def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type=None):
+def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type=None, progress=None):
     query = webproperty.query.range(compare_start_date, compare_end_date).search_type(search_type).dimension(*dimensions)
+
+    total_steps = 2
+    current_step = 0
 
     if 'device' in dimensions and device_type and device_type != 'All Devices':
         query = query.filter('device', 'equals', device_type.lower())
@@ -176,6 +191,10 @@ def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
         df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
+        current_step += 1
+        if progress:
+            progress.progress(current_step / total_steps)
+
         return df
     except Exception as e:
         show_error(e)
@@ -286,21 +305,22 @@ def show_dimensions_selector(search_type):
 
 def show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, filter_keywords, filter_keywords_not, filter_url):
     if st.button("Fetch Data"):
+        progress = st.progress(0)
         if st.session_state.compare:
             compare_start_date = st.session_state.compare_start_date
             compare_end_date = st.session_state.compare_end_date
-            compare_report = fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, selected_dimensions, st.session_state.selected_device)
+            compare_report = asyncio.run(fetch_compare_data_async(webproperty, search_type, compare_start_date, compare_end_date, selected_dimensions, st.session_state.selected_device, progress))
 
             if compare_report is not None and not compare_report.empty:
                 st.write("### Comparison data fetched successfully!")
-                report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
+                report = asyncio.run(fetch_gsc_data_async(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url, progress))
                 merged_report = compare_data(report, compare_report)
                 show_dataframe(merged_report)
                 download_csv_link(merged_report)
             else:
                 st.write("No comparison data found for the selected parameters.")
         else:
-            report = fetch_data_loading(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
+            report = asyncio.run(fetch_gsc_data_async(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url, progress))
 
             if report is not None and not report.empty:
                 st.write("### Data fetched successfully!")
