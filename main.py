@@ -186,14 +186,7 @@ def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end
 
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
-        df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
-        current_step += 1
-        if progress:
-            progress.progress(current_step / total_steps)
-        return df
-    except Exception as e:
-        show_error(e)
-        return pd.DataFrame()
+        df.reset_index(drop=True, inplace=True)  # Reset the index before returning the 
 
 # -------------
 # Utility Functions
@@ -366,8 +359,11 @@ def main():
     auth_code = query_params.get("code", [None])[0]
 
     if auth_code and not st.session_state.get('credentials'):
-        st.session_state.auth_flow.fetch_token(code=auth_code)
-        st.session_state.credentials = st.session_state.auth_flow.credentials
+        try:
+            st.session_state.auth_flow.fetch_token(code=auth_code)
+            st.session_state.credentials = st.session_state.auth_flow.credentials
+        except Exception as e:
+            st.error(f"Failed to fetch token: {e}")
 
     if not st.session_state.get('credentials'):
         show_google_sign_in(st.session_state.auth_url)
