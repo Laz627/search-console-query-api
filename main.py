@@ -2,7 +2,6 @@
 import datetime
 import base64
 import io
-import asyncio
 
 # Related third-party imports
 import streamlit as st
@@ -132,10 +131,6 @@ def auth_search_console(client_config, credentials):
 # Data Fetching Functions
 # -------------
 
-async def fetch_gsc_data_async(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keywords=None, filter_keywords_not=None, filter_url=None):
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, fetch_gsc_data, webproperty, search_type, start_date, end_date, dimensions, device_type, filter_keywords, filter_keywords_not, filter_url)
-
 def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keywords=None, filter_keywords_not=None, filter_url=None):
     query = webproperty.query.range(start_date, end_date).search_type(search_type).dimension(*dimensions)
 
@@ -162,10 +157,6 @@ def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, d
     except Exception as e:
         show_error(e)
         return pd.DataFrame()
-
-async def fetch_compare_data_async(webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type=None):
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, fetch_compare_data, webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type)
 
 def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type=None):
     query = webproperty.query.range(compare_start_date, compare_end_date).search_type(search_type).dimension(*dimensions)
@@ -295,18 +286,18 @@ def show_fetch_data_button(webproperty, search_type, start_date, end_date, selec
         if st.session_state.compare:
             compare_start_date = st.session_state.compare_start_date
             compare_end_date = st.session_state.compare_end_date
-            compare_report = asyncio.run(fetch_compare_data_async(webproperty, search_type, compare_start_date, compare_end_date, selected_dimensions, st.session_state.selected_device))
+            compare_report = fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, selected_dimensions, st.session_state.selected_device)
 
             if compare_report is not None and not compare_report.empty:
                 st.write("### Comparison data fetched successfully!")
-                report = asyncio.run(fetch_gsc_data_async(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url))
+                report = fetch_gsc_data(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
                 merged_report = compare_data(report, compare_report)
                 show_dataframe(merged_report)
                 download_csv_link(merged_report)
             else:
                 st.write("No comparison data found for the selected parameters.")
         else:
-            report = asyncio.run(fetch_gsc_data_async(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url))
+            report = fetch_gsc_data(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
 
             if report is not None and not report.empty:
                 st.write("### Data fetched successfully!")
