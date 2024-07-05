@@ -172,6 +172,8 @@ def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, d
         df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
         return df
     except Exception as e:
+        if progress:
+            progress.progress(1.0)
         show_error(e)
         return pd.DataFrame()
 
@@ -186,7 +188,16 @@ def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end
 
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
-        df.reset_index(drop=True, inplace=True)  # Reset the index before returning the 
+        df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
+        current_step += 1
+        if progress:
+            progress.progress(current_step / total_steps)
+        return df
+    except Exception as e:
+        if progress:
+            progress.progress(1.0)
+        show_error(e)
+        return pd.DataFrame()
 
 # -------------
 # Utility Functions
