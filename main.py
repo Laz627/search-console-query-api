@@ -230,6 +230,11 @@ def show_error(e):
 def property_change():
     st.session_state.selected_property = st.session_state['selected_property_selector']
 
+def list_gsc_properties(credentials):
+    service = build('webmasters', 'v3', credentials=credentials)
+    site_list = service.sites().list().execute()
+    return [site['siteUrl'] for site in site_list.get('siteEntry', [])] or ["No properties found"]
+
 # -------------
 # File & Download Operations
 # -------------
