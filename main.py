@@ -1,5 +1,3 @@
-# main.py
-
 import datetime
 import base64
 import io
@@ -34,25 +32,16 @@ def reassemble_auth_code(params):
     """
     Safely extract the 'code' parameter from st.experimental_get_query_params(),
     and rejoin the slash if it got split.
-
-    For example, if st.experimental_get_query_params() is:
-      {
-         "state": ["xyz"],
-         "code": ["4"],
-         "0AanRRrvbMKDLGd_...": [""],
-         "scope": ["..."]
-      }
-    we produce: "4/0AanRRrvbMKDLGd_..."
     """
     code_list = params.get("code")
     if not code_list:
         return None
 
-    code_val = code_list[0]  # Usually just a single string in a list
+    code_val = code_list[0]
     if not code_val:
         return None
 
-    # If the code_val is "4" (typical truncation) or ends with "/", attempt to rejoin
+    # If the code_val is "4" or ends with "/", attempt to rejoin
     if code_val == "4" or code_val.endswith("/"):
         leftover_key = None
         for k in params.keys():
@@ -182,15 +171,34 @@ def list_gsc_properties(credentials):
 # 4) Search Console data fetching (chunked, sequential)
 ###############################################################################
 
-def _fetch_chunk(webproperty, search_type, dimensions, device_type, chunk_start, chunk_end):
+def _fetch_chunk(
+    webproperty,
+    search_type,
+    dimensions,
+    device_type,
+    chunk_start,
+    chunk_end,
+    filter_url=None
+):
     """
-    Helper for a single chunk.
+    Helper for a single chunk. 
+    Note the page filter applied (if filter_url is present).
     """
     st.write(f"[DEBUG] Fetching chunk {chunk_start} -> {chunk_end}")
-    query = webproperty.query.range(chunk_start, chunk_end).search_type(search_type).dimension(*dimensions)
+    query = (
+        webproperty.query
+        .range(chunk_start, chunk_end)
+        .search_type(search_type)
+        .dimension(*dimensions)
+    )
 
+    # Device filter if selected
     if "device" in dimensions and device_type and device_type != "All Devices":
         query = query.filter("device", "equals", device_type.lower())
+
+    # Apply the subfolder filter at the API level to avoid missing data
+    if filter_url:
+        query = query.filter("page", "contains", filter_url)
 
     df_chunk = query.limit(250000).get().to_dataframe()
     df_chunk.reset_index(drop=True, inplace=True)
@@ -210,7 +218,8 @@ def fetch_gsc_data_in_chunks(
 ):
     """
     Fetches data in ~3-month (90-day) increments sequentially,
-    combining into a single DataFrame. Avoids concurrency issues & timeouts.
+    combining into a single DataFrame. The subfolder (page) filter
+    is applied in _fetch_chunk to ensure no missing data.
     """
     st.write("**Info:** Fetching data in smaller chunks (sequential).")
 
@@ -224,7 +233,15 @@ def fetch_gsc_data_in_chunks(
             current_end = end_date
 
         try:
-            df_chunk = _fetch_chunk(webproperty, search_type, dimensions, device_type, current_start, current_end)
+            df_chunk = _fetch_chunk(
+                webproperty,
+                search_type,
+                dimensions,
+                device_type,
+                current_start,
+                current_end,
+                filter_url=filter_url
+            )
             results.append(df_chunk)
         except Exception as e:
             st.write(f"[ERROR] Chunk {current_start}->{current_end} failed: {e}")
@@ -235,27 +252,31 @@ def fetch_gsc_data_in_chunks(
     if results:
         df_all = pd.concat(results, ignore_index=True)
         # Remove duplicates if you suspect overlap
-        df_all.drop_duplicates(subset=dimensions + ["clicks", "impressions", "ctr", "position"], inplace=True)
+        df_all.drop_duplicates(
+            subset=dimensions + ["clicks", "impressions", "ctr", "position"],
+            inplace=True
+        )
     else:
         df_all = pd.DataFrame()
 
-    # Apply final filters
+    # Apply final filters for keywords (query contains) if needed
     if not df_all.empty:
         if filter_keywords:
             keywords = [kw.strip() for kw in filter_keywords.split(",")]
+            # OR logic for keywords
             df_all = df_all[df_all["query"].str.contains("|".join(keywords), case=False, na=False)]
         if filter_keywords_not:
             for kw_not in filter_keywords_not.split(","):
                 df_all = df_all[~df_all["query"].str.contains(kw_not.strip(), case=False, na=False)]
-        if filter_url:
-            df_all = df_all[df_all["page"].str.contains(filter_url, case=False, na=False)]
+
+        # NOTE: We removed the old final filter for filter_url because we now
+        # filter at the query level to avoid data loss.
 
     return df_all
 
 def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type=None):
     """
-    Comparison is done with a single 250k-limit call here (not chunked).
-    For large compare windows, you can adapt a chunk approach similarly.
+    Comparison is done with a single 250k-limit call (not chunked).
     """
     st.write("Fetching comparison data (single query).")
     progress = st.progress(0.5)
