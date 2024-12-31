@@ -1,18 +1,16 @@
-# main.py
-
 import datetime
 import base64
 import io
+import re
+import urllib.parse
+
 import streamlit as st
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 import pandas as pd
 import searchconsole
 
-# If True, use localhost for testing; if False, use your production URL
 IS_LOCAL = False
-
-# Constants
 SEARCH_TYPES = ["web", "image", "video", "news", "discover", "googleNews"]
 DATE_RANGE_OPTIONS = [
     "Last 7 Days",
@@ -27,12 +25,24 @@ BASE_DIMENSIONS = ["page", "query", "country", "date"]
 MAX_ROWS = 250_000
 DF_PREVIEW_ROWS = 100
 
+
+def get_auth_code_raw():
+    """
+    Parses the full request URL to extract the 'code' parameter,
+    bypassing any slash-truncation issues in st.query_params.
+    Requires Streamlit >= 1.22 for st.request.url.
+    """
+    full_url = st.request.url
+    match = re.search(r"code=([^&]+)", full_url)
+    if match:
+        return urllib.parse.unquote(match.group(1))
+    return None
+
 def setup_streamlit():
     st.set_page_config(page_title="Google Search Console API Connector", layout="wide")
     st.title("Google Search Console API Connector")
     st.subheader("Export Up To 250,000 Keywords Seamlessly")
     st.markdown("By: Brandon Lazovic")
-
     st.markdown("""
     ### Instructions
     1. Sign in with your Google account.
@@ -77,18 +87,16 @@ def init_session_state():
         st.session_state.compare_end_date = datetime.date.today() - datetime.timedelta(days=7)
 
 def load_config():
-    # Must be "web" for a Streamlit web app (not "installed").
     client_config = {
         "web": {
             "client_id": st.secrets["oauth"]["client_id"],
             "client_secret": st.secrets["oauth"]["client_secret"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            # Use the modern Google token endpoint:
             "token_uri": "https://oauth2.googleapis.com/token",
             "redirect_uris": (
                 ["http://localhost:8501"] if IS_LOCAL
                 else ["https://search-console-query-api.streamlit.app"]
-                # Ensure this matches EXACTLY what is set in your Google Cloud Console
+                # Must EXACTLY match what's in the Google Cloud Console
             ),
         }
     }
@@ -106,8 +114,6 @@ def init_oauth_flow(client_config):
 
 def google_auth(client_config):
     flow = init_oauth_flow(client_config)
-
-    # This helps ensure the auth code is properly URL-encoded (slashes become %2F, etc.)
     auth_url, _ = flow.authorization_url(
         prompt="consent",
         access_type="offline",
@@ -153,7 +159,9 @@ def show_property_selector(properties, account):
     return account[selected_property]
 
 def update_dimensions(selected_search_type):
-    return BASE_DIMENSIONS + ["device"] if selected_search_type in SEARCH_TYPES else BASE_DIMENSIONS
+    if selected_search_type in SEARCH_TYPES:
+        return BASE_DIMENSIONS + ["device"]
+    return BASE_DIMENSIONS
 
 def show_search_type_selector():
     return st.selectbox(
@@ -358,41 +366,33 @@ def main():
     setup_streamlit()
     client_config = load_config()
 
-    # 1. Initialize the Flow and get auth_url
     flow, auth_url = google_auth(client_config)
     st.session_state.auth_flow = flow
     st.session_state.auth_url = auth_url
 
-    # 2. Extra debug to see the raw query params
-    st.write("**Debug:** Full st.query_params =>", st.query_params)
+    # DEBUG: Show how Streamlit sees the query params
+    st.write("**Debug:** st.query_params =>", st.query_params)
+    
+    # <-- Here we parse from the raw URL to avoid slash truncation
+    auth_code = get_auth_code_raw()
+    st.write("**Debug:** (raw) auth_code =>", auth_code)
 
-    # 3. Extract the code from query params
-    query_params = st.query_params
-    auth_code_list = query_params.get("code", [None])
-    auth_code = auth_code_list[0] if auth_code_list else None
-
-    # Optional: display the code for debugging
-    st.write("**Debug:** auth_code =>", auth_code)
-
-    # 4. Only exchange the code if we don't have credentials yet and the code is not None
+    # Only attempt fetch_token if we have an auth_code and no stored credentials
     if auth_code and not st.session_state.get("credentials"):
         try:
-            st.write("**Debug:** Attempting to fetch token with code...")
+            st.write("**Debug:** Attempting to fetch token with raw code...")
             st.session_state.auth_flow.fetch_token(code=auth_code)
             st.session_state.credentials = st.session_state.auth_flow.credentials
-
-            # Clear the code from the URL
-            st.experimental_set_query_params()
+            st.experimental_set_query_params()  # Remove code from URL
             st.write("**Debug:** Token fetched successfully.")
         except Exception as e:
             st.error(f"Error fetching token: {e}")
 
-    # 5. If we still don't have credentials, prompt to sign in
     if not st.session_state.get("credentials"):
         show_google_sign_in(st.session_state.auth_url)
         return
 
-    # 6. We have credentials; proceed
+    # We have credentials; proceed
     init_session_state()
     account = auth_search_console(client_config, st.session_state.credentials)
     properties = list_gsc_properties(st.session_state.credentials)
@@ -411,7 +411,7 @@ def main():
 
         selected_dimensions = show_dimensions_selector(search_type)
 
-        # (Optional) If you want a device selector, you can add it here:
+        # Example device selector if needed:
         # st.session_state.selected_device = st.selectbox(
         #     "Select Device:",
         #     ["All Devices", "desktop", "mobile", "tablet"]
@@ -419,7 +419,6 @@ def main():
 
         show_comparison_option()
         show_filter_options()
-
         show_fetch_data_button(
             webproperty, search_type, start_date, end_date,
             selected_dimensions, st.session_state.filter_keywords,
