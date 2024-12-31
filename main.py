@@ -11,7 +11,7 @@ import concurrent.futures
 
 IS_LOCAL = False
 
-# Only "page" + "query" dimensions:
+# We only want "page" + "query" dimensions
 FORCED_DIMENSIONS = ["page", "query"]
 
 DATE_RANGE_OPTIONS = [
@@ -24,16 +24,12 @@ DATE_RANGE_OPTIONS = [
     "Custom Range"
 ]
 
-MAX_ROWS = 250_000  # Each chunk query is limited to 250k rows.
+MAX_ROWS = 250_000
 
 ###############################################################################
-# 1) This function handles older Streamlit versions that truncate auth code.
+# 1) Handle older Streamlit code truncation
 ###############################################################################
 def reassemble_auth_code(params):
-    """
-    If code was split around a slash, rejoin it.
-    E.g. if st.experimental_get_query_params() shows {"code":["4"],"0AanRRr...":[""]}
-    """
     code_list = params.get("code")
     if not code_list:
         return None
@@ -53,7 +49,7 @@ def reassemble_auth_code(params):
     return code_val
 
 ###############################################################################
-# 2) Setup Streamlit (instructions, session state)
+# 2) Streamlit setup + instructions
 ###############################################################################
 def setup_streamlit():
     st.set_page_config(page_title="GSC Parallel Exporter", layout="wide")
@@ -62,13 +58,13 @@ def setup_streamlit():
     st.markdown(
         """
         **Instructions**:
-        1. Use the sidebar to **Sign in with Google**.
-        2. Choose your GSC property & date range.
-        3. Optionally enter a **subfolder** like `"/features-options/"`. 
-           - If you type `"pella.com/features-options"`, we'll extract just `"/features-options"`.
-        4. (Optional) Check 'Compare Time Periods' for a second date range.
-        5. Click **"Fetch Data"** to retrieve chunked results in **parallel** (only page + query), excluding zero-click rows.
-        6. Preview the first 100 rows, then **download** your CSV.
+        1. Sign in with Google (sidebar).
+        2. Select your GSC property & date range.
+        3. Optionally enter a subfolder (like `"/features-options/"` or `"features-options"`). 
+           - We'll remove the leading slash automatically if that helps avoid Google API errors.
+        4. (Optional) Check "Compare Time Periods" for a second date range.
+        5. Click **"Fetch Data"** to retrieve chunked parallel results of **page + query** (excluding 0-click rows).
+        6. Preview the first 100 rows, then download your CSV.
         """
     )
 
@@ -101,7 +97,7 @@ def init_session_state():
         st.session_state.compare_end_date = datetime.date.today() - datetime.timedelta(days=7)
 
 ###############################################################################
-# 3) OAuth + Search Console
+# 3) OAuth + GSC
 ###############################################################################
 def load_config():
     client_config = {
@@ -161,30 +157,41 @@ def list_gsc_properties(credentials):
 ###############################################################################
 def _extract_subfolder(input_str: str) -> str:
     """
-    Extract just the subfolder portion starting from the first slash.
-    Examples:
-      "pella.com/ideas"  -> "/ideas"
-      "https://pella.com/features-options/" -> "/features-options/"
-      "/features-options/" -> "/features-options/"
-      "pella.com" -> (no slash => keep "pella.com")
+    Removes domain/protocol, then extracts the substring from the first slash. 
+    Finally, strip leading slash if present, because leading slash often triggers
+    the Google API to interpret it as an operator token.
+    
+    Example:
+      "pella.com/features-options/" -> "features-options/"
+      "/features-options/"          -> "features-options/"
+      "https://pella.com/features-options" -> "features-options"
+      "features-options"            -> "features-options"  (unchanged)
     """
     if not input_str:
         return ""
-    # Strip known prefixes like "http://", "https://"
-    # We'll let urlparse handle them, then extract the path.
+
+    # Step 1: parse out domain/protocol
     parsed = urllib.parse.urlparse(input_str, scheme='', allow_fragments=False)
     if parsed.netloc:
-        # If there's a domain, parsed.path is the subfolder
-        if parsed.path:
-            return parsed.path  # e.g. "/ideas"
+        # If there's a domain, use the path
+        path_part = parsed.path
+        # If no path, fallback to netloc
+        subpart = path_part if path_part else parsed.netloc
+    else:
+        # If user typed "pella.com/features-options" w/o protocol
+        # we do a manual find for slash
+        idx = input_str.find("/")
+        if idx >= 0:
+            subpart = input_str[idx:]  # from slash onward
         else:
-            return parsed.netloc  # e.g. "pella.com" if no slash
-    # If user typed "pella.com/ideas" w/o protocol => netloc won't parse
-    # We'll manually find first slash:
-    idx = input_str.find("/")
-    if idx >= 0:
-        return input_str[idx:]  # everything from slash forward
-    return input_str  # no slash found => keep as is
+            # no slash => entire string
+            subpart = input_str
+
+    # Step 2: remove leading slash
+    clean = subpart.lstrip("/")
+
+    # This is the final substring to pass to "contains"
+    return clean.strip()
 
 def _fetch_chunk_threaded(
     client_config,
@@ -196,7 +203,7 @@ def _fetch_chunk_threaded(
     chunk_start,
     chunk_end
 ):
-    # Re-initialize searchconsole per thread for concurrency safety
+    # Re-initialize searchconsole per thread
     token = {
         "token": credentials.token,
         "refresh_token": credentials.refresh_token,
@@ -212,8 +219,8 @@ def _fetch_chunk_threaded(
     query = webproperty.query.range(chunk_start, chunk_end).search_type(search_type)
     query = query.dimension(*FORCED_DIMENSIONS)
 
-    # Apply subfolder filter with .filter("page", "contains", subfolder)
     if subfolder:
+        # "contains" subfolder without leading slash
         query = query.filter("page", "contains", subfolder)
 
     if device_type and device_type != "All Devices":
@@ -235,10 +242,9 @@ def fetch_gsc_data_parallel(
     filter_keywords=None,
     filter_keywords_not=None
 ):
-    # Extract the subfolder from filter_url (removing domain/protocol)
+    # parse out subfolder, remove leading slash
     subfolder = _extract_subfolder(filter_url)
 
-    # Build ~30-day chunks
     chunk_size_days = 30
     chunks = []
     current_start = start_date
@@ -292,7 +298,7 @@ def fetch_gsc_data_parallel(
     else:
         df_all = pd.DataFrame()
 
-    # Exclude zero clicks
+    # Exclude zero-click rows
     if not df_all.empty:
         df_all = df_all[df_all["clicks"] > 0]
 
@@ -321,7 +327,6 @@ def fetch_compare_data_single(
     device_type=None,
     filter_url=None
 ):
-    # Single query for the compare timeframe
     account = searchconsole.authenticate(
         client_config=client_config,
         credentials={
@@ -349,7 +354,6 @@ def fetch_compare_data_single(
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
         df.reset_index(drop=True, inplace=True)
-        # Remove zero-click
         df = df[df["clicks"] > 0]
         return df
     except Exception as e:
@@ -357,7 +361,7 @@ def fetch_compare_data_single(
         return pd.DataFrame()
 
 ###############################################################################
-# 5) UI and final app flow
+# 5) UI and final
 ###############################################################################
 def property_change():
     st.session_state.selected_property = st.session_state["selected_property_selector"]
@@ -515,7 +519,7 @@ def show_fetch_data_button(
                 st.warning("No data found for the selected parameters.")
 
 ###############################################################################
-# 6) Main Entry
+# 6) Main
 ###############################################################################
 def main():
     setup_streamlit()
@@ -524,11 +528,9 @@ def main():
     st.session_state.auth_flow = flow
     st.session_state.auth_url = auth_url
 
-    # For older Streamlit, use st.experimental_get_query_params
     params = st.experimental_get_query_params()
     auth_code = reassemble_auth_code(params)
 
-    # Try to fetch token if we have an auth_code and no credentials
     if auth_code and not st.session_state.get("credentials"):
         try:
             st.session_state.auth_flow.fetch_token(code=auth_code)
