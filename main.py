@@ -88,7 +88,7 @@ def init_session_state():
 
 def load_config():
     client_config = {
-        "installed": {
+        "web": {
             "client_id": st.secrets["oauth"]["client_id"],
             "client_secret": st.secrets["oauth"]["client_secret"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
