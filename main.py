@@ -1,6 +1,5 @@
 import datetime
 import base64
-import re
 import urllib.parse
 import streamlit as st
 from google_auth_oauthlib.flow import Flow
@@ -11,7 +10,7 @@ import concurrent.futures
 
 IS_LOCAL = False
 
-# We only want "page" + "query" dimensions
+# We only want "page" + "query"
 FORCED_DIMENSIONS = ["page", "query"]
 
 DATE_RANGE_OPTIONS = [
@@ -24,10 +23,10 @@ DATE_RANGE_OPTIONS = [
     "Custom Range"
 ]
 
-MAX_ROWS = 250_000
+MAX_ROWS = 250_000  # Each chunk can retrieve up to 250k from GSC.
 
 ###############################################################################
-# 1) Handle older Streamlit code truncation
+# 1) Handle truncated auth code in older Streamlit
 ###############################################################################
 def reassemble_auth_code(params):
     code_list = params.get("code")
@@ -49,22 +48,25 @@ def reassemble_auth_code(params):
     return code_val
 
 ###############################################################################
-# 2) Streamlit setup + instructions
+# 2) Streamlit setup & instructions
 ###############################################################################
 def setup_streamlit():
     st.set_page_config(page_title="GSC Parallel Exporter", layout="wide")
-
-    st.title("Google Search Console Parallel Exporter")
+    st.title("Google Search Console Parallel Exporter (Post-Fetch Filtering)")
     st.markdown(
         """
         **Instructions**:
-        1. Sign in with Google (sidebar).
+        1. Sign in with Google using the sidebar.
         2. Select your GSC property & date range.
-        3. Optionally enter a subfolder (like `"/features-options/"` or `"features-options"`). 
-           - We'll remove the leading slash automatically if that helps avoid Google API errors.
-        4. (Optional) Check "Compare Time Periods" for a second date range.
-        5. Click **"Fetch Data"** to retrieve chunked parallel results of **page + query** (excluding 0-click rows).
+        3. Optionally enter a subfolder filter like `"/features-options/"`. 
+           - **Note**: We apply this **after** fetching the data, to avoid "Invalid operator" errors.
+        4. (Optional) Check "Compare Time Periods" to fetch a second date range.
+        5. Click **"Fetch Data"** to retrieve chunked parallel results for **page + query**, excluding 0 clicks.
         6. Preview the first 100 rows, then download your CSV.
+        
+        **Warning**: Because we're not filtering on Google's side, if your data for each chunk 
+        exceeds 250k rows, you might lose some data. If that's the case, reduce the chunk size 
+        or incorporate different dimension filters (e.g. device) to keep each chunk under 250k.
         """
     )
 
@@ -153,57 +155,18 @@ def list_gsc_properties(credentials):
     return [site["siteUrl"] for site in site_list.get("siteEntry", [])] or ["No properties found"]
 
 ###############################################################################
-# 4) Parallel chunk fetching
+# 4) Parallel chunk fetching (NO page dimension filter in the query)
 ###############################################################################
-def _extract_subfolder(input_str: str) -> str:
-    """
-    Removes domain/protocol, then extracts the substring from the first slash. 
-    Finally, strip leading slash if present, because leading slash often triggers
-    the Google API to interpret it as an operator token.
-    
-    Example:
-      "pella.com/features-options/" -> "features-options/"
-      "/features-options/"          -> "features-options/"
-      "https://pella.com/features-options" -> "features-options"
-      "features-options"            -> "features-options"  (unchanged)
-    """
-    if not input_str:
-        return ""
-
-    # Step 1: parse out domain/protocol
-    parsed = urllib.parse.urlparse(input_str, scheme='', allow_fragments=False)
-    if parsed.netloc:
-        # If there's a domain, use the path
-        path_part = parsed.path
-        # If no path, fallback to netloc
-        subpart = path_part if path_part else parsed.netloc
-    else:
-        # If user typed "pella.com/features-options" w/o protocol
-        # we do a manual find for slash
-        idx = input_str.find("/")
-        if idx >= 0:
-            subpart = input_str[idx:]  # from slash onward
-        else:
-            # no slash => entire string
-            subpart = input_str
-
-    # Step 2: remove leading slash
-    clean = subpart.lstrip("/")
-
-    # This is the final substring to pass to "contains"
-    return clean.strip()
-
 def _fetch_chunk_threaded(
     client_config,
     credentials,
     property_uri,
     search_type,
     device_type,
-    subfolder,
     chunk_start,
     chunk_end
 ):
-    # Re-initialize searchconsole per thread
+    # Initialize searchconsole per thread
     token = {
         "token": credentials.token,
         "refresh_token": credentials.refresh_token,
@@ -216,21 +179,19 @@ def _fetch_chunk_threaded(
     account = searchconsole.authenticate(client_config=client_config, credentials=token)
     webproperty = account[property_uri]
 
+    # We only request "page" + "query"
     query = webproperty.query.range(chunk_start, chunk_end).search_type(search_type)
     query = query.dimension(*FORCED_DIMENSIONS)
-
-    if subfolder:
-        # "contains" subfolder without leading slash
-        query = query.filter("page", "contains", subfolder)
 
     if device_type and device_type != "All Devices":
         query = query.filter("device", "equals", device_type.lower())
 
+    # Limit to 250k
     df_chunk = query.limit(MAX_ROWS).get().to_dataframe()
     df_chunk.reset_index(drop=True, inplace=True)
     return df_chunk
 
-def fetch_gsc_data_parallel(
+def fetch_gsc_data_parallel_postfilter(
     client_config,
     credentials,
     property_uri,
@@ -242,9 +203,12 @@ def fetch_gsc_data_parallel(
     filter_keywords=None,
     filter_keywords_not=None
 ):
-    # parse out subfolder, remove leading slash
-    subfolder = _extract_subfolder(filter_url)
-
+    """
+    Fetch data in parallel chunks, then apply:
+      - Zero-click removal
+      - Subfolder filter (if user typed one) AFTER fetching
+      - Keyword filters
+    """
     chunk_size_days = 30
     chunks = []
     current_start = start_date
@@ -260,6 +224,7 @@ def fetch_gsc_data_parallel(
     progress_bar = st.progress(0)
     progress_text = st.empty()
 
+    # 1) Fetch in parallel with no page filter
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         future_map = {
             executor.submit(
@@ -269,7 +234,6 @@ def fetch_gsc_data_parallel(
                 property_uri,
                 search_type,
                 device_type,
-                subfolder,
                 c[0],
                 c[1]
             ): c
@@ -286,9 +250,9 @@ def fetch_gsc_data_parallel(
                 st.error(f"[ERROR] Chunk {date_range} failed: {e}")
             done_count += 1
             progress_bar.progress(done_count / total_chunks)
-            progress_text.write(f"Fetched {done_count} of {total_chunks} chunks.")
+            progress_text.write(f"Fetched {done_count} of {total_chunks} chunks...")
 
-    # Combine
+    # 2) Combine all chunks
     if results:
         df_all = pd.concat(results, ignore_index=True)
         df_all.drop_duplicates(
@@ -298,11 +262,16 @@ def fetch_gsc_data_parallel(
     else:
         df_all = pd.DataFrame()
 
-    # Exclude zero-click rows
+    # 3) Exclude 0-click
     if not df_all.empty:
         df_all = df_all[df_all["clicks"] > 0]
 
-    # Keyword filters
+    # 4) Now apply subfolder filter in Python
+    # e.g. if user typed "/features-options/", we filter `df_all['page'].str.contains("/features-options/")`
+    if filter_url and not df_all.empty:
+        df_all = df_all[df_all["page"].str.contains(filter_url, case=False, na=False)]
+
+    # 5) Keyword filters (Python side)
     if not df_all.empty:
         if filter_keywords:
             keywords = [kw.strip() for kw in filter_keywords.split(",")]
@@ -314,10 +283,10 @@ def fetch_gsc_data_parallel(
                 df_all = df_all[~df_all["query"].str.contains(kw_not, case=False, na=False)]
 
     progress_bar.progress(1.0)
-    progress_text.write("All chunks fetched and combined.")
+    progress_text.write("All chunks fetched & post-filtered.")
     return df_all
 
-def fetch_compare_data_single(
+def fetch_compare_data_single_postfilter(
     client_config,
     credentials,
     property_uri,
@@ -327,6 +296,10 @@ def fetch_compare_data_single(
     device_type=None,
     filter_url=None
 ):
+    """
+    Single-call approach for compare date range, no dimension filter for 'page',
+    then do subfolder filtering in Python.
+    """
     account = searchconsole.authenticate(
         client_config=client_config,
         credentials={
@@ -344,24 +317,25 @@ def fetch_compare_data_single(
     query = webproperty.query.range(compare_start_date, compare_end_date).search_type(search_type)
     query = query.dimension(*FORCED_DIMENSIONS)
 
-    subfolder = _extract_subfolder(filter_url)
-    if subfolder:
-        query = query.filter("page", "contains", subfolder)
-
     if device_type and device_type != "All Devices":
         query = query.filter("device", "equals", device_type.lower())
 
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
         df.reset_index(drop=True, inplace=True)
+        # remove zero-click
         df = df[df["clicks"] > 0]
+
+        # if subfolder filter provided, filter in Python
+        if filter_url:
+            df = df[df["page"].str.contains(filter_url, case=False, na=False)]
         return df
     except Exception as e:
         st.error(f"Comparison fetch error: {e}")
         return pd.DataFrame()
 
 ###############################################################################
-# 5) UI and final
+# 5) UI + main
 ###############################################################################
 def property_change():
     st.session_state.selected_property = st.session_state["selected_property_selector"]
@@ -421,7 +395,7 @@ def show_comparison_option():
         )
 
 def show_filter_options():
-    st.session_state.filter_url = st.text_input("Subfolder Filter (e.g. /features-options/)")
+    st.session_state.filter_url = st.text_input("Subfolder Filter (post-fetch, e.g. /features-options/)")
     st.session_state.filter_keywords = st.text_input("Keyword Filter (contains, comma-separated)")
     st.session_state.filter_keywords_not = st.text_input("Exclude Keywords (comma-separated)")
 
@@ -463,7 +437,7 @@ def show_fetch_data_button(
 ):
     if st.button("Fetch Data"):
         if st.session_state.compare:
-            compare_df = fetch_compare_data_single(
+            compare_df = fetch_compare_data_single_postfilter(
                 client_config,
                 credentials,
                 property_uri,
@@ -474,7 +448,7 @@ def show_fetch_data_button(
                 filter_url=filter_url
             )
             if not compare_df.empty:
-                main_df = fetch_gsc_data_parallel(
+                main_df = fetch_gsc_data_parallel_postfilter(
                     client_config,
                     credentials,
                     property_uri,
@@ -499,7 +473,7 @@ def show_fetch_data_button(
             else:
                 st.warning("No data found for the comparison time period.")
         else:
-            df = fetch_gsc_data_parallel(
+            df = fetch_gsc_data_parallel_postfilter(
                 client_config,
                 credentials,
                 property_uri,
