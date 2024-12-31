@@ -1,4 +1,4 @@
-streamlit
+streamlit==1.22
 google-auth-oauthlib
 google-api-python-client
 pandas
