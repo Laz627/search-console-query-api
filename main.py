@@ -1,9 +1,10 @@
+# main.py
+
 import datetime
 import base64
 import io
 import re
 import urllib.parse
-
 import streamlit as st
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
@@ -25,24 +26,55 @@ BASE_DIMENSIONS = ["page", "query", "country", "date"]
 MAX_ROWS = 250_000
 DF_PREVIEW_ROWS = 100
 
+def reassemble_auth_code(params):
+    """
+    Safely extract the 'code' parameter from st.experimental_get_query_params(),
+    and rejoin the slash if it got split.
 
-def get_auth_code_raw():
+    For example, if st.experimental_get_query_params() is:
+      {
+         "state": ["xyz"],
+         "code": ["4"],
+         "0AanRRrvbMKDLGd_...": [""],
+         "scope": ["..."]
+      }
+
+    We detect 'code'=="4" and see leftover key "0AanRRrvbMKDLGd_...".
+    Then we produce "4/0AanRRrvbMKDLGd_...".
     """
-    Parses the full request URL to extract the 'code' parameter,
-    bypassing any slash-truncation issues in st.query_params.
-    Requires Streamlit >= 1.22 for st.request.url.
-    """
-    full_url = st.request.url
-    match = re.search(r"code=([^&]+)", full_url)
-    if match:
-        return urllib.parse.unquote(match.group(1))
-    return None
+
+    # st.experimental_get_query_params() returns lists for each key:
+    # e.g. params = {"code": ["4"], "another": ["value"], ...}
+    code_list = params.get("code")
+    if not code_list:
+        return None  # No code at all
+
+    code_val = code_list[0]  # Usually a single string in a list
+    if not code_val:
+        return None
+
+    # If the code_val is "4" (common truncated snippet) or "4/", attempt rejoin
+    if code_val == "4" or code_val.endswith("/"):
+        # Look for a leftover key that starts with a chunk of the code
+        # e.g. "0AanRRrvbMKDLGd_..."
+        leftover_key = None
+        for k in params.keys():
+            # We skip "code" itself and "state", "scope"...
+            if k not in ["code", "state", "scope"]:
+                leftover_key = k
+                break
+        if leftover_key:
+            # If code_val is "4", we want "4/ leftover_key"
+            # or if code_val was "4/", we'd do "4/ leftover_key" anyway
+            code_val = code_val.rstrip("/") + "/" + leftover_key.lstrip("/")
+    return code_val
 
 def setup_streamlit():
     st.set_page_config(page_title="Google Search Console API Connector", layout="wide")
     st.title("Google Search Console API Connector")
     st.subheader("Export Up To 250,000 Keywords Seamlessly")
     st.markdown("By: Brandon Lazovic")
+
     st.markdown("""
     ### Instructions
     1. Sign in with your Google account.
@@ -96,7 +128,7 @@ def load_config():
             "redirect_uris": (
                 ["http://localhost:8501"] if IS_LOCAL
                 else ["https://search-console-query-api.streamlit.app"]
-                # Must EXACTLY match what's in the Google Cloud Console
+                # Must EXACTLY match what's in your Google Cloud Console
             ),
         }
     }
@@ -159,9 +191,7 @@ def show_property_selector(properties, account):
     return account[selected_property]
 
 def update_dimensions(selected_search_type):
-    if selected_search_type in SEARCH_TYPES:
-        return BASE_DIMENSIONS + ["device"]
-    return BASE_DIMENSIONS
+    return BASE_DIMENSIONS + ["device"] if selected_search_type in SEARCH_TYPES else BASE_DIMENSIONS
 
 def show_search_type_selector():
     return st.selectbox(
@@ -366,28 +396,30 @@ def main():
     setup_streamlit()
     client_config = load_config()
 
+    # Initialize OAuth Flow & Auth URL
     flow, auth_url = google_auth(client_config)
     st.session_state.auth_flow = flow
     st.session_state.auth_url = auth_url
 
-    # DEBUG: Show how Streamlit sees the query params
-    st.write("**Debug:** st.query_params =>", st.query_params)
-    
-    # <-- Here we parse from the raw URL to avoid slash truncation
-    auth_code = get_auth_code_raw()
-    st.write("**Debug:** (raw) auth_code =>", auth_code)
+    # -- Instead of st.query_params, use the older approach:
+    params = st.experimental_get_query_params()
+    st.write("**Debug:** st.experimental_get_query_params =>", params)
 
-    # Only attempt fetch_token if we have an auth_code and no stored credentials
+    auth_code = reassemble_auth_code(params)
+    st.write("**Debug:** reassembled auth_code =>", auth_code)
+
     if auth_code and not st.session_state.get("credentials"):
         try:
-            st.write("**Debug:** Attempting to fetch token with raw code...")
+            st.write("**Debug:** Attempting to fetch token with code:", auth_code)
             st.session_state.auth_flow.fetch_token(code=auth_code)
             st.session_state.credentials = st.session_state.auth_flow.credentials
-            st.experimental_set_query_params()  # Remove code from URL
+            # Clear code from URL
+            st.experimental_set_query_params()
             st.write("**Debug:** Token fetched successfully.")
         except Exception as e:
             st.error(f"Error fetching token: {e}")
 
+    # If we still don't have credentials, show sign-in
     if not st.session_state.get("credentials"):
         show_google_sign_in(st.session_state.auth_url)
         return
@@ -411,7 +443,7 @@ def main():
 
         selected_dimensions = show_dimensions_selector(search_type)
 
-        # Example device selector if needed:
+        # Optional device dropdown:
         # st.session_state.selected_device = st.selectbox(
         #     "Select Device:",
         #     ["All Devices", "desktop", "mobile", "tablet"]
