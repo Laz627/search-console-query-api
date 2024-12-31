@@ -82,7 +82,7 @@ def load_config():
             "client_id": st.secrets["oauth"]["client_id"],
             "client_secret": st.secrets["oauth"]["client_secret"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://accounts.google.com/o/oauth2/token",
+            "token_uri": ""token_uri": "https://oauth2.googleapis.com/token",
             "redirect_uris": (
                 ["http://localhost:8501"] if IS_LOCAL
                 else ["https://search-console-query-api.streamlit.app"]  # or with trailing slash if that is your exact match
@@ -105,9 +105,11 @@ def init_oauth_flow(client_config):
 def google_auth(client_config):
     flow = init_oauth_flow(client_config)
     # prompt="consent" can force user re-auth. If you want to allow existing tokens, you could remove it.
-    auth_url, _ = flow.authorization_url(prompt="consent")
-    return flow, auth_url
-
+    auth_url, _ = flow.authorization_url(
+        access_type='offline',
+        prompt='consent',
+        include_granted_scopes='true'
+    )
 
 def auth_search_console(client_config, credentials):
     token = {
