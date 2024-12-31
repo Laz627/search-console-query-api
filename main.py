@@ -358,7 +358,7 @@ def main():
     client_config = load_config()
     st.session_state.auth_flow, st.session_state.auth_url = google_auth(client_config)
 
-    query_params = st.experimental.query_params()
+    query_params = st.experimental_get_query_params()
     auth_code = query_params.get("code", [None])[0]
 
     if auth_code and not st.session_state.get('credentials'):
