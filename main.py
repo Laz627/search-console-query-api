@@ -10,6 +10,7 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 import pandas as pd
 import searchconsole
+import concurrent.futures
 
 IS_LOCAL = False
 SEARCH_TYPES = ["web", "image", "video", "news", "discover", "googleNews"]
@@ -26,46 +27,32 @@ BASE_DIMENSIONS = ["page", "query", "country", "date"]
 MAX_ROWS = 250_000
 DF_PREVIEW_ROWS = 100
 
+###############################################################################
+# Older Streamlit versions do not have st.query_params or st.request.url,
+# so we use st.experimental_get_query_params() plus the reassemble approach.
+###############################################################################
+
 def reassemble_auth_code(params):
     """
     Safely extract the 'code' parameter from st.experimental_get_query_params(),
-    and rejoin the slash if it got split.
-
-    For example, if st.experimental_get_query_params() is:
-      {
-         "state": ["xyz"],
-         "code": ["4"],
-         "0AanRRrvbMKDLGd_...": [""],
-         "scope": ["..."]
-      }
-
-    We detect 'code'=="4" and see leftover key "0AanRRrvbMKDLGd_...".
-    Then we produce "4/0AanRRrvbMKDLGd_...".
+    and rejoin the slash if it got split. E.g. if 'code' is '4' plus a leftover
+    key for the rest of the code.
     """
-
-    # st.experimental_get_query_params() returns lists for each key:
-    # e.g. params = {"code": ["4"], "another": ["value"], ...}
     code_list = params.get("code")
     if not code_list:
-        return None  # No code at all
+        return None
 
-    code_val = code_list[0]  # Usually a single string in a list
+    code_val = code_list[0]
     if not code_val:
         return None
 
-    # If the code_val is "4" (common truncated snippet) or "4/", attempt rejoin
     if code_val == "4" or code_val.endswith("/"):
-        # Look for a leftover key that starts with a chunk of the code
-        # e.g. "0AanRRrvbMKDLGd_..."
         leftover_key = None
         for k in params.keys():
-            # We skip "code" itself and "state", "scope"...
             if k not in ["code", "state", "scope"]:
                 leftover_key = k
                 break
         if leftover_key:
-            # If code_val is "4", we want "4/ leftover_key"
-            # or if code_val was "4/", we'd do "4/ leftover_key" anyway
             code_val = code_val.rstrip("/") + "/" + leftover_key.lstrip("/")
     return code_val
 
@@ -74,7 +61,6 @@ def setup_streamlit():
     st.title("Google Search Console API Connector")
     st.subheader("Export Up To 250,000 Keywords Seamlessly")
     st.markdown("By: Brandon Lazovic")
-
     st.markdown("""
     ### Instructions
     1. Sign in with your Google account.
@@ -137,11 +123,7 @@ def load_config():
 def init_oauth_flow(client_config):
     scopes = ["https://www.googleapis.com/auth/webmasters.readonly"]
     redirect_uri = client_config["web"]["redirect_uris"][0]
-    flow = Flow.from_client_config(
-        client_config,
-        scopes=scopes,
-        redirect_uri=redirect_uri
-    )
+    flow = Flow.from_client_config(client_config, scopes=scopes, redirect_uri=redirect_uri)
     return flow
 
 def google_auth(client_config):
@@ -237,7 +219,6 @@ def show_comparison_option():
     if "compare" not in st.session_state:
         st.session_state.compare = False
     st.session_state.compare = st.checkbox("Compare Time Periods", value=st.session_state.compare)
-
     if st.session_state.compare:
         if "compare_start_date" not in st.session_state:
             st.session_state.compare_start_date = datetime.date.today() - datetime.timedelta(days=14)
@@ -251,8 +232,92 @@ def show_filter_options():
     st.session_state.filter_keywords_not = st.text_input("Keyword Filter (does not contain, separate multiple with commas)")
     st.session_state.filter_url = st.text_input("URL or Subfolder Filter (contains)")
 
+###############################################################################
+# Concurrency + chunking approach
+###############################################################################
+
+def _fetch_chunk(webproperty, search_type, dimensions, device_type,
+                 chunk_start, chunk_end):
+    """
+    Helper function to fetch data for a single chunk of dates.
+    This runs inside a thread (or process) when using concurrency.
+    """
+    st.write(f"[DEBUG] Fetching chunk {chunk_start} -> {chunk_end}")
+    query = webproperty.query.range(chunk_start, chunk_end).search_type(search_type).dimension(*dimensions)
+
+    if "device" in dimensions and device_type and device_type != "All Devices":
+        query = query.filter("device", "equals", device_type.lower())
+
+    df_chunk = query.limit(250000).get().to_dataframe()
+    df_chunk.reset_index(drop=True, inplace=True)
+    return df_chunk
+
+def fetch_gsc_data_in_chunks_concurrent(webproperty, search_type, start_date, end_date, dimensions,
+                                        device_type=None, filter_keywords=None,
+                                        filter_keywords_not=None, filter_url=None):
+    """
+    Splits the date range into ~3-month chunks, fetches each chunk concurrently,
+    then merges the results. Also applies final filtering.
+    """
+    # 1. Build a list of chunk intervals (e.g., ~3 months each)
+    chunks = []
+    chunk_size_days = 90
+    current_start = start_date
+    while current_start <= end_date:
+        current_end = current_start + datetime.timedelta(days=chunk_size_days - 1)
+        if current_end > end_date:
+            current_end = end_date
+        chunks.append((current_start, current_end))
+        current_start = current_end + datetime.timedelta(days=1)
+
+    # 2. Fetch each chunk concurrently using ThreadPoolExecutor
+    results = []
+    st.write("**Info:** Fetching data in multiple chunks concurrently...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        future_to_chunk = {
+            executor.submit(_fetch_chunk, webproperty, search_type, dimensions, device_type, c[0], c[1]): c
+            for c in chunks
+        }
+        for future in concurrent.futures.as_completed(future_to_chunk):
+            chunk_start, chunk_end = future_to_chunk[future]
+            try:
+                df_chunk = future.result()
+                st.write(f"[DEBUG] Completed chunk {chunk_start} -> {chunk_end}, got {len(df_chunk)} rows")
+                results.append(df_chunk)
+            except Exception as e:
+                st.write(f"[ERROR] Chunk {chunk_start}->{chunk_end} failed: {e}")
+
+    # 3. Combine all chunk DataFrames
+    if results:
+        df_all = pd.concat(results, ignore_index=True)
+        # (Optional) de-duplicate if same row could appear in overlapping ranges
+        df_all.drop_duplicates(subset=dimensions + ["clicks", "impressions", "ctr", "position"], inplace=True)
+    else:
+        df_all = pd.DataFrame()
+
+    # 4. Apply filters
+    if not df_all.empty:
+        # Filter (contains)
+        if filter_keywords:
+            keywords = [kw.strip() for kw in filter_keywords.split(",")]
+            df_all = df_all[df_all["query"].str.contains("|".join(keywords), case=False, na=False)]
+        # Filter (does not contain)
+        if filter_keywords_not:
+            for kw_not in filter_keywords_not.split(","):
+                df_all = df_all[~df_all["query"].str.contains(kw_not.strip(), case=False, na=False)]
+        # Filter URL
+        if filter_url:
+            df_all = df_all[df_all["page"].str.contains(filter_url, case=False, na=False)]
+
+    return df_all
+
+###############################################################################
+# Comparison data fetch remains simpler for demonstration, but you can also
+# do chunking for comparisons if needed.
+###############################################################################
+
 def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, dimensions, device_type=None):
-    st.write("Fetching comparison data...")
+    st.write("Fetching comparison data in a single request (no chunking).")
     progress = st.progress(0.5)
     query = webproperty.query.range(compare_start_date, compare_end_date).search_type(search_type).dimension(*dimensions)
 
@@ -270,52 +335,6 @@ def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end
         progress.progress(1.0)
         return pd.DataFrame()
 
-def fetch_gsc_data(
-    webproperty, search_type, start_date, end_date, dimensions,
-    device_type=None, filter_keywords=None, filter_keywords_not=None,
-    filter_url=None, progress=None
-):
-    if not progress:
-        progress = st.progress(0)
-    st.write("Fetching data...")
-    progress.progress(0.2)
-
-    query = webproperty.query.range(start_date, end_date).search_type(search_type).dimension(*dimensions)
-
-    if "device" in dimensions and device_type and device_type != "All Devices":
-        query = query.filter("device", "equals", device_type.lower())
-
-    try:
-        df = query.limit(250000).get().to_dataframe()
-        st.write("Data fetched.")
-        progress.progress(0.4)
-
-        if filter_keywords:
-            st.write("Applying keyword filter (contains)...")
-            keywords = [kw.strip() for kw in filter_keywords.split(",")]
-            df = df[df["query"].str.contains("|".join(keywords), case=False, na=False)]
-            progress.progress(0.6)
-
-        if filter_keywords_not:
-            st.write("Applying keyword filter (does not contain)...")
-            keywords_not = [kw.strip() for kw in filter_keywords_not.split(",")]
-            for keyword in keywords_not:
-                df = df[~df["query"].str.contains(keyword, case=False, na=False)]
-            progress.progress(0.8)
-
-        if filter_url:
-            st.write("Applying URL filter...")
-            df = df[df["page"].str.contains(filter_url, case=False, na=False)]
-
-        st.write("Data filtering complete.")
-        df.reset_index(drop=True, inplace=True)
-        progress.progress(1.0)
-        return df
-    except Exception as e:
-        show_error(e)
-        progress.progress(1.0)
-        return pd.DataFrame()
-
 def show_dataframe(report):
     with st.expander("Preview the First 100 Rows"):
         st.dataframe(report.head(100))
@@ -323,10 +342,8 @@ def show_dataframe(report):
 def download_csv_link(report):
     try:
         report.reset_index(drop=True, inplace=True)
-
         def to_csv(df):
             return df.to_csv(index=False, encoding="utf-8-sig")
-
         csv = to_csv(report)
         b64_csv = base64.b64encode(csv.encode()).decode()
         href = f'<a href="data:file/csv;base64,{b64_csv}" download="search_console_data.csv">Download CSV File</a>'
@@ -353,55 +370,55 @@ def show_dimensions_selector(search_type):
         key="dimensions_selector"
     )
 
-def show_fetch_data_button(
-    webproperty, search_type, start_date, end_date,
-    selected_dimensions, filter_keywords, filter_keywords_not, filter_url
-):
+def show_fetch_data_button(webproperty, search_type, start_date, end_date,
+                           selected_dimensions, filter_keywords, filter_keywords_not, filter_url):
     if st.button("Fetch Data"):
         progress = st.progress(0)
         if st.session_state.compare:
+            # If doing comparisons on 12-month data, you might also chunk the comparison date range in a similar manner.
             compare_start_date = st.session_state.compare_start_date
             compare_end_date = st.session_state.compare_end_date
             compare_report = fetch_compare_data(
                 webproperty, search_type, compare_start_date, compare_end_date,
                 selected_dimensions, st.session_state.selected_device
             )
-
             if not compare_report.empty:
                 st.write("### Comparison data fetched successfully!")
-                report = fetch_gsc_data(
+                # Use concurrency+chunking for the main data:
+                report = fetch_gsc_data_in_chunks_concurrent(
                     webproperty, search_type, start_date, end_date,
-                    selected_dimensions, st.session_state.selected_device,
-                    filter_keywords, filter_keywords_not, filter_url, progress
+                    selected_dimensions, device_type=st.session_state.selected_device,
+                    filter_keywords=filter_keywords, filter_keywords_not=filter_keywords_not, filter_url=filter_url
                 )
                 merged_report = compare_data(report, compare_report)
+                progress.progress(0.8)
                 show_dataframe(merged_report)
                 download_csv_link(merged_report)
             else:
                 st.write("No comparison data found for the selected parameters.")
+            progress.progress(1.0)
         else:
-            report = fetch_gsc_data(
+            # Single time period with concurrency+chunking
+            df = fetch_gsc_data_in_chunks_concurrent(
                 webproperty, search_type, start_date, end_date,
-                selected_dimensions, st.session_state.selected_device,
-                filter_keywords, filter_keywords_not, filter_url, progress
+                selected_dimensions, device_type=st.session_state.selected_device,
+                filter_keywords=filter_keywords, filter_keywords_not=filter_keywords_not, filter_url=filter_url
             )
-            if not report.empty:
-                st.write("### Data fetched successfully!")
-                show_dataframe(report)
-                download_csv_link(report)
+            if not df.empty:
+                st.write(f"### Data fetched successfully! Rows: {len(df)}")
+                show_dataframe(df)
+                download_csv_link(df)
             else:
                 st.write("No data found for the selected parameters.")
 
 def main():
     setup_streamlit()
     client_config = load_config()
-
-    # Initialize OAuth Flow & Auth URL
     flow, auth_url = google_auth(client_config)
     st.session_state.auth_flow = flow
     st.session_state.auth_url = auth_url
 
-    # -- Instead of st.query_params, use the older approach:
+    # Use st.experimental_get_query_params for older Streamlit:
     params = st.experimental_get_query_params()
     st.write("**Debug:** st.experimental_get_query_params =>", params)
 
@@ -419,12 +436,10 @@ def main():
         except Exception as e:
             st.error(f"Error fetching token: {e}")
 
-    # If we still don't have credentials, show sign-in
     if not st.session_state.get("credentials"):
         show_google_sign_in(st.session_state.auth_url)
         return
 
-    # We have credentials; proceed
     init_session_state()
     account = auth_search_console(client_config, st.session_state.credentials)
     properties = list_gsc_properties(st.session_state.credentials)
@@ -443,7 +458,7 @@ def main():
 
         selected_dimensions = show_dimensions_selector(search_type)
 
-        # Optional device dropdown:
+        # (Optional) Provide a device selector:
         # st.session_state.selected_device = st.selectbox(
         #     "Select Device:",
         #     ["All Devices", "desktop", "mobile", "tablet"]
