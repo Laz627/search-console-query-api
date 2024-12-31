@@ -364,6 +364,9 @@ def main():
     if auth_code and not st.session_state.get('credentials'):
         st.session_state.auth_flow.fetch_token(code=auth_code)
         st.session_state.credentials = st.session_state.auth_flow.credentials
+        # Remove the code from the URL so refresh won't reuse it
+        st.query_params
+
 
     if not st.session_state.get('credentials'):
         show_google_sign_in(st.session_state.auth_url)
