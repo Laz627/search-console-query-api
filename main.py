@@ -18,7 +18,7 @@ DATE_RANGE_OPTIONS = [
     "Last 6 Months",
     "Last 12 Months",
     "Last 16 Months",
-    "Custom Range"
+    "Custom Range",
 ]
 BASE_DIMENSIONS = ["page", "query", "country", "date"]
 MAX_ROWS = 250_000
@@ -182,9 +182,11 @@ def _fetch_chunk(
 ):
     """
     Helper for a single chunk. 
-    Note the page filter applied (if filter_url is present).
+    Uses named arguments to ensure the right operator ("contains") is applied,
+    and the expression is your filter_url string.
     """
     st.write(f"[DEBUG] Fetching chunk {chunk_start} -> {chunk_end}")
+
     query = (
         webproperty.query
         .range(chunk_start, chunk_end)
@@ -194,11 +196,12 @@ def _fetch_chunk(
 
     # Device filter if selected
     if "device" in dimensions and device_type and device_type != "All Devices":
-        query = query.filter("device", "equals", device_type.lower())
+        query = query.filter(dimension="device", operator="equals", expression=device_type.lower())
 
-    # Apply the subfolder filter at the API level to avoid missing data
+    # Apply the page filter as subfolder filter at the API level
     if filter_url:
-        query = query.filter("page", "includingRegex", "/features-options/")
+        st.write("[DEBUG] Applying filter on page => 'contains' =>", filter_url)
+        query = query.filter(dimension="page", operator="contains", expression=filter_url)
 
     df_chunk = query.limit(250000).get().to_dataframe()
     df_chunk.reset_index(drop=True, inplace=True)
@@ -218,8 +221,8 @@ def fetch_gsc_data_in_chunks(
 ):
     """
     Fetches data in ~3-month (90-day) increments sequentially,
-    combining into a single DataFrame. The subfolder (page) filter
-    is applied in _fetch_chunk to ensure no missing data.
+    combining into a single DataFrame. The subfolder/page filter
+    is applied at the API level to avoid missing data.
     """
     st.write("**Info:** Fetching data in smaller chunks (sequential).")
 
@@ -234,12 +237,12 @@ def fetch_gsc_data_in_chunks(
 
         try:
             df_chunk = _fetch_chunk(
-                webproperty,
-                search_type,
-                dimensions,
-                device_type,
-                current_start,
-                current_end,
+                webproperty=webproperty,
+                search_type=search_type,
+                dimensions=dimensions,
+                device_type=device_type,
+                chunk_start=current_start,
+                chunk_end=current_end,
                 filter_url=filter_url
             )
             results.append(df_chunk)
@@ -259,18 +262,19 @@ def fetch_gsc_data_in_chunks(
     else:
         df_all = pd.DataFrame()
 
-    # Apply final filters for keywords (query contains) if needed
+    # Keyword (query) filters after chunking
     if not df_all.empty:
+        # Filter: includes
         if filter_keywords:
             keywords = [kw.strip() for kw in filter_keywords.split(",")]
-            # OR logic for keywords
             df_all = df_all[df_all["query"].str.contains("|".join(keywords), case=False, na=False)]
+        # Filter: excludes
         if filter_keywords_not:
             for kw_not in filter_keywords_not.split(","):
                 df_all = df_all[~df_all["query"].str.contains(kw_not.strip(), case=False, na=False)]
 
-        # NOTE: We removed the old final filter for filter_url because we now
-        # filter at the query level to avoid data loss.
+        # NOTE: We do not do a post-filter for filter_url because 
+        # we already filtered at the API level.
 
     return df_all
 
@@ -280,10 +284,15 @@ def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end
     """
     st.write("Fetching comparison data (single query).")
     progress = st.progress(0.5)
-    query = webproperty.query.range(compare_start_date, compare_end_date).search_type(search_type).dimension(*dimensions)
+    query = (
+        webproperty.query
+        .range(compare_start_date, compare_end_date)
+        .search_type(search_type)
+        .dimension(*dimensions)
+    )
 
     if "device" in dimensions and device_type and device_type != "All Devices":
-        query = query.filter("device", "equals", device_type.lower())
+        query = query.filter(dimension="device", operator="equals", expression=device_type.lower())
 
     try:
         df = query.limit(250000).get().to_dataframe()
@@ -413,8 +422,14 @@ def show_dimensions_selector(search_type):
     )
 
 def show_fetch_data_button(
-    webproperty, search_type, start_date, end_date,
-    selected_dimensions, filter_keywords, filter_keywords_not, filter_url
+    webproperty,
+    search_type,
+    start_date,
+    end_date,
+    selected_dimensions,
+    filter_keywords,
+    filter_keywords_not,
+    filter_url
 ):
     if st.button("Fetch Data"):
         progress = st.progress(0)
@@ -423,20 +438,23 @@ def show_fetch_data_button(
             compare_start_date = st.session_state.compare_start_date
             compare_end_date = st.session_state.compare_end_date
             compare_report = fetch_compare_data(
-                webproperty, search_type,
-                compare_start_date, compare_end_date,
-                selected_dimensions, st.session_state.selected_device
+                webproperty,
+                search_type,
+                compare_start_date,
+                compare_end_date,
+                selected_dimensions,
+                st.session_state.selected_device
             )
             if not compare_report.empty:
                 st.write("### Comparison data fetched successfully!")
 
                 # Now fetch the main data in chunked, sequential manner
                 report = fetch_gsc_data_in_chunks(
-                    webproperty,
-                    search_type,
-                    start_date,
-                    end_date,
-                    selected_dimensions,
+                    webproperty=webproperty,
+                    search_type=search_type,
+                    start_date=start_date,
+                    end_date=end_date,
+                    dimensions=selected_dimensions,
                     device_type=st.session_state.selected_device,
                     filter_keywords=filter_keywords,
                     filter_keywords_not=filter_keywords_not,
@@ -452,11 +470,11 @@ def show_fetch_data_button(
         else:
             # Single date range, chunked
             df = fetch_gsc_data_in_chunks(
-                webproperty,
-                search_type,
-                start_date,
-                end_date,
-                selected_dimensions,
+                webproperty=webproperty,
+                search_type=search_type,
+                start_date=start_date,
+                end_date=end_date,
+                dimensions=selected_dimensions,
                 device_type=st.session_state.selected_device,
                 filter_keywords=filter_keywords,
                 filter_keywords_not=filter_keywords_not,
@@ -527,7 +545,7 @@ def main():
 
         selected_dimensions = show_dimensions_selector(search_type)
 
-        # Example optional device selector:
+        # Optional device selector:
         # st.session_state.selected_device = st.selectbox(
         #     "Select Device:",
         #     ["All Devices", "desktop", "mobile", "tablet"]
@@ -536,9 +554,14 @@ def main():
         show_comparison_option()
         show_filter_options()
         show_fetch_data_button(
-            webproperty, search_type, start_date, end_date,
-            selected_dimensions, st.session_state.filter_keywords,
-            st.session_state.filter_keywords_not, st.session_state.filter_url
+            webproperty,
+            search_type,
+            start_date,
+            end_date,
+            selected_dimensions,
+            st.session_state.filter_keywords,
+            st.session_state.filter_keywords_not,
+            st.session_state.filter_url
         )
 
 if __name__ == "__main__":
