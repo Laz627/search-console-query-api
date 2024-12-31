@@ -82,7 +82,7 @@ def load_config():
             "client_id": st.secrets["oauth"]["client_id"],
             "client_secret": st.secrets["oauth"]["client_secret"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": ""token_uri": "https://oauth2.googleapis.com/token",
+            "token_uri": ""token_uri": "https://oauth2.googleapis.com",
             "redirect_uris": (
                 ["http://localhost:8501"] if IS_LOCAL
                 else ["https://search-console-query-api.streamlit.app"]  # or with trailing slash if that is your exact match
