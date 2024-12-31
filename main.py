@@ -198,7 +198,7 @@ def _fetch_chunk(
 
     # Apply the subfolder filter at the API level to avoid missing data
     if filter_url:
-        query = query.filter("page", "contains", filter_url)
+        query = query.filter("page", "includingRegex", "/features-options/")
 
     df_chunk = query.limit(250000).get().to_dataframe()
     df_chunk.reset_index(drop=True, inplace=True)
