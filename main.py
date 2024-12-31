@@ -1,4 +1,5 @@
 # main.py
+
 import datetime
 import base64
 import io
@@ -76,16 +77,18 @@ def init_session_state():
         st.session_state.compare_end_date = datetime.date.today() - datetime.timedelta(days=7)
 
 def load_config():
-    # Must be "web" not "installed"
+    # Must be "web" for a Streamlit web app (not "installed").
     client_config = {
         "web": {
             "client_id": st.secrets["oauth"]["client_id"],
             "client_secret": st.secrets["oauth"]["client_secret"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": ""token_uri": "https://oauth2.googleapis.com",
+            # Use the modern Google token endpoint:
+            "token_uri": "https://oauth2.googleapis.com/token",
             "redirect_uris": (
                 ["http://localhost:8501"] if IS_LOCAL
-                else ["https://search-console-query-api.streamlit.app"]  # or with trailing slash if that is your exact match
+                else ["https://search-console-query-api.streamlit.app"]
+                # Ensure this matches EXACTLY what is set in your Google Cloud Console
             ),
         }
     }
@@ -94,7 +97,6 @@ def load_config():
 def init_oauth_flow(client_config):
     scopes = ["https://www.googleapis.com/auth/webmasters.readonly"]
     redirect_uri = client_config["web"]["redirect_uris"][0]
-
     flow = Flow.from_client_config(
         client_config,
         scopes=scopes,
@@ -104,12 +106,14 @@ def init_oauth_flow(client_config):
 
 def google_auth(client_config):
     flow = init_oauth_flow(client_config)
-    # prompt="consent" can force user re-auth. If you want to allow existing tokens, you could remove it.
+
+    # This helps ensure the auth code is properly URL-encoded (slashes become %2F, etc.)
     auth_url, _ = flow.authorization_url(
-        access_type='offline',
-        prompt='consent',
-        include_granted_scopes='true'
+        prompt="consent",
+        access_type="offline",
+        include_granted_scopes="true"
     )
+    return flow, auth_url
 
 def auth_search_console(client_config, credentials):
     token = {
@@ -130,7 +134,6 @@ def show_google_sign_in(auth_url):
             st.markdown(f"[Google Sign-In]({auth_url})", unsafe_allow_html=True)
 
 def list_gsc_properties(credentials):
-    from googleapiclient.discovery import build
     service = build("webmasters", "v3", credentials=credentials)
     site_list = service.sites().list().execute()
     return [site["siteUrl"] for site in site_list.get("siteEntry", [])] or ["No properties found"]
@@ -280,7 +283,6 @@ def show_dataframe(report):
         st.dataframe(report.head(100))
 
 def download_csv_link(report):
-    import base64
     try:
         report.reset_index(drop=True, inplace=True)
 
@@ -361,8 +363,8 @@ def main():
     st.session_state.auth_flow = flow
     st.session_state.auth_url = auth_url
 
-    # 2. Print debug info about query params
-    st.write("**Debug:** Current query params =>", st.query_params)
+    # 2. Extra debug to see the raw query params
+    st.write("**Debug:** Full st.query_params =>", st.query_params)
 
     # 3. Extract the code from query params
     query_params = st.query_params
@@ -409,8 +411,11 @@ def main():
 
         selected_dimensions = show_dimensions_selector(search_type)
 
-        # (Optional) If you want a device selector, add it here
-        # st.session_state.selected_device = st.selectbox("Select Device:", ["All Devices","desktop","mobile","tablet"])
+        # (Optional) If you want a device selector, you can add it here:
+        # st.session_state.selected_device = st.selectbox(
+        #     "Select Device:",
+        #     ["All Devices", "desktop", "mobile", "tablet"]
+        # )
 
         show_comparison_option()
         show_filter_options()
