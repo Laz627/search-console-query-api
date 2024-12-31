@@ -32,7 +32,6 @@ DF_PREVIEW_ROWS = 100
 # -------------
 # Streamlit App Configuration
 # -------------
-
 def setup_streamlit():
     st.set_page_config(page_title="Google Search Console API Connector", layout="wide")
     st.title("Google Search Console API Connector")
@@ -87,6 +86,7 @@ def init_session_state():
 # -------------
 
 def load_config():
+    # Switch from "installed" to "web" so Google sees this as a Web App OAuth client
     client_config = {
         "web": {
             "client_id": st.secrets["oauth"]["client_id"],
@@ -104,10 +104,12 @@ def load_config():
 
 def init_oauth_flow(client_config):
     scopes = ["https://www.googleapis.com/auth/webmasters.readonly"]
+    # Make sure you specify the correct redirect URI from the "web" list
+    redirect_uri = client_config["web"]["redirect_uris"][0]
     return Flow.from_client_config(
         client_config,
         scopes=scopes,
-        redirect_uri=client_config["installed"]["redirect_uris"][0],
+        redirect_uri=redirect_uri,
     )
 
 def google_auth(client_config):
@@ -131,7 +133,9 @@ def auth_search_console(client_config, credentials):
 # Data Fetching Functions
 # -------------
 
-def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, device_type=None, filter_keywords=None, filter_keywords_not=None, filter_url=None, progress=None):
+def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions,
+                   device_type=None, filter_keywords=None, filter_keywords_not=None,
+                   filter_url=None, progress=None):
     query = webproperty.query.range(start_date, end_date).search_type(search_type).dimension(*dimensions)
 
     if 'device' in dimensions and device_type and device_type != 'All Devices':
@@ -163,7 +167,7 @@ def fetch_gsc_data(webproperty, search_type, start_date, end_date, dimensions, d
             df = df[df['page'].str.contains(filter_url, case=False, na=False)]
 
         st.write("Data filtering complete.")
-        df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
+        df.reset_index(drop=True, inplace=True)
         progress.progress(1.0)
         return df
     except Exception as e:
@@ -182,7 +186,7 @@ def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end
 
     try:
         df = query.limit(MAX_ROWS).get().to_dataframe()
-        df.reset_index(drop=True, inplace=True)  # Reset the index before returning the DataFrame
+        df.reset_index(drop=True, inplace=True)
         st.write("Comparison data fetched.")
         progress.progress(1.0)
         return df
@@ -196,6 +200,7 @@ def fetch_compare_data(webproperty, search_type, compare_start_date, compare_end
 # -------------
 
 def update_dimensions(selected_search_type):
+    # If the search type is valid, consider adding 'device' dimension
     return BASE_DIMENSIONS + ['device'] if selected_search_type in SEARCH_TYPES else BASE_DIMENSIONS
 
 def calc_date_range(selection, custom_start=None, custom_end=None):
@@ -236,7 +241,6 @@ def show_dataframe(report):
 
 def download_csv_link(report):
     try:
-        # Reset the DataFrame index before converting to CSV
         report.reset_index(drop=True, inplace=True)
 
         def to_csv(df):
@@ -299,24 +303,38 @@ def show_dimensions_selector(search_type):
         key='dimensions_selector'
     )
 
-def show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, filter_keywords, filter_keywords_not, filter_url):
+def show_fetch_data_button(webproperty, search_type, start_date, end_date,
+                           selected_dimensions, filter_keywords, filter_keywords_not, filter_url):
     if st.button("Fetch Data"):
         progress = st.progress(0)
         if st.session_state.compare:
             compare_start_date = st.session_state.compare_start_date
             compare_end_date = st.session_state.compare_end_date
-            compare_report = fetch_compare_data(webproperty, search_type, compare_start_date, compare_end_date, selected_dimensions, st.session_state.selected_device)
+            compare_report = fetch_compare_data(
+                webproperty, search_type, compare_start_date, compare_end_date,
+                selected_dimensions, st.session_state.selected_device
+            )
 
             if compare_report is not None and not compare_report.empty:
                 st.write("### Comparison data fetched successfully!")
-                report = fetch_gsc_data(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url, progress)
+                report = fetch_gsc_data(
+                    webproperty, search_type, start_date, end_date,
+                    selected_dimensions, st.session_state.selected_device,
+                    st.session_state.filter_keywords, st.session_state.filter_keywords_not,
+                    st.session_state.filter_url, progress
+                )
                 merged_report = compare_data(report, compare_report)
                 show_dataframe(merged_report)
                 download_csv_link(merged_report)
             else:
                 st.write("No comparison data found for the selected parameters.")
         else:
-            report = fetch_gsc_data(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.selected_device, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url, progress)
+            report = fetch_gsc_data(
+                webproperty, search_type, start_date, end_date,
+                selected_dimensions, st.session_state.selected_device,
+                st.session_state.filter_keywords, st.session_state.filter_keywords_not,
+                st.session_state.filter_url, progress
+            )
 
             if report is not None and not report.empty:
                 st.write("### Data fetched successfully!")
@@ -344,7 +362,11 @@ def show_filter_options():
     st.session_state.filter_url = st.text_input("URL or Subfolder Filter (contains)")
 
 def compare_data(report, compare_report):
-    merged_report = report.merge(compare_report, on=['page', 'query'], suffixes=('_current', '_compare'))
+    merged_report = report.merge(
+        compare_report,
+        on=['page', 'query'],
+        suffixes=('_current', '_compare')
+    )
     merged_report['clicks_diff'] = merged_report['clicks_current'] - merged_report['clicks_compare']
     merged_report['impressions_diff'] = merged_report['impressions_current'] - merged_report['impressions_compare']
     return merged_report
@@ -352,25 +374,30 @@ def compare_data(report, compare_report):
 # -------------
 # Main Streamlit App Function
 # -------------
-
 def main():
     setup_streamlit()
     client_config = load_config()
+
+    # Initialize OAuth flow and auth URL
     st.session_state.auth_flow, st.session_state.auth_url = google_auth(client_config)
 
+    # Replace st.experimental_get_query_params() with st.query_params
     query_params = st.query_params
     auth_code = query_params.get("code", [None])[0]
 
+    # Only exchange the auth_code if we don't already have credentials
     if auth_code and not st.session_state.get('credentials'):
         st.session_state.auth_flow.fetch_token(code=auth_code)
         st.session_state.credentials = st.session_state.auth_flow.credentials
-        # Remove the code from the URL so refresh won't reuse it
-        st.query_params
 
+        # Optional: clear the code from the URL so we don't reuse it on refresh
+        st.experimental_set_query_params()
 
     if not st.session_state.get('credentials'):
+        # If we still don't have credentials, ask user to sign in
         show_google_sign_in(st.session_state.auth_url)
     else:
+        # We have valid credentials; proceed
         init_session_state()
         account = auth_search_console(client_config, st.session_state.credentials)
         properties = list_gsc_properties(st.session_state.credentials)
@@ -382,7 +409,8 @@ def main():
 
             if date_range_selection == 'Custom Range':
                 show_custom_date_inputs()
-                start_date, end_date = st.session_state.custom_start_date, st.session_state.custom_end_date
+                start_date = st.session_state.custom_start_date
+                end_date = st.session_state.custom_end_date
             else:
                 start_date, end_date = calc_date_range(date_range_selection)
 
@@ -390,7 +418,12 @@ def main():
             show_comparison_option()
             show_filter_options()
 
-            show_fetch_data_button(webproperty, search_type, start_date, end_date, selected_dimensions, st.session_state.filter_keywords, st.session_state.filter_keywords_not, st.session_state.filter_url)
+            show_fetch_data_button(
+                webproperty, search_type, start_date, end_date,
+                selected_dimensions,
+                st.session_state.filter_keywords, st.session_state.filter_keywords_not,
+                st.session_state.filter_url
+            )
 
 if __name__ == "__main__":
     main()
