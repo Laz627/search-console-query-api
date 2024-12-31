@@ -105,8 +105,12 @@ def init_oauth_flow(client_config):
 def google_auth(client_config):
     flow = init_oauth_flow(client_config)
     # prompt="consent" can force user re-auth. If you want to allow existing tokens, you could remove it.
-    auth_url, _ = flow.authorization_url(prompt="consent")
-    return flow, auth_url
+    auth_url, _ = flow.authorization_url(
+        prompt="consent",
+        include_granted_scopes="true",
+        access_type="offline"
+    )
+
 
 def auth_search_console(client_config, credentials):
     token = {
